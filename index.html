@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <title>WebAR Experience</title>
-    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
   </head>
   <body style="margin: 0; overflow: hidden;">
     <a-scene embedded arjs>
       <!-- Define the camera -->
-      <a-camera gps-camera></a-camera>
+     <a-camera gps-camera rotation-reader></a-camera>
       <!-- Place your 3D model at the specified GPS coordinates -->
       <a-entity
         gps-entity-place="latitude: 48.29001756836221;  longitude: 14.282755309132993;"
