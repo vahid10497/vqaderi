@@ -14,7 +14,9 @@
       vr-mode-ui="enabled: false"
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
+      <!-- GPS-based model (runs at first) -->
       <a-entity
+        id="gps-model"
         gps-entity-place="latitude: 48.29001756836221; longitude: 14.282756650237488;"
         gltf-model="My_model.glb"
         scale="5 5 5"
@@ -22,8 +24,43 @@
         rotation="0 180 0"
       ></a-entity>
 
+      <!-- Marker-based model (appears after 20s) -->
+      <a-marker id="marker" type="pattern" url="pattern-marker.patt" visible="false">
+        <a-entity
+          id="marker-model"
+          gltf-model="My_model.glb"
+          scale="5 5 5"
+          position="0 0 0"
+          rotation="0 180 0"
+          visible="false"
+        ></a-entity>
+      </a-marker>
+
       <a-camera gps-camera rotation-reader></a-camera>
     </a-scene>
+
+    <script>
+      // Wait 20 seconds before switching to marker tracking
+      setTimeout(() => {
+        // Hide GPS model
+        document.getElementById('gps-model').setAttribute('visible', false);
+
+        // Enable marker visibility
+        const marker = document.getElementById('marker');
+        const markerModel = document.getElementById('marker-model');
+
+        marker.setAttribute('visible', true);
+
+        // Optional: only show model when marker is actually detected
+        marker.addEventListener('markerFound', () => {
+          markerModel.setAttribute('visible', true);
+        });
+        marker.addEventListener('markerLost', () => {
+          markerModel.setAttribute('visible', false);
+        });
+      }, 20000);
+    </script>
   </body>
 </html>
+
 
