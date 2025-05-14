@@ -5,45 +5,38 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>GeoAR.js demo</title>
 
-    <!-- A-Frame Core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- Look-at component, not critical but can be useful -->
     <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
-    <!-- AR.js for NFT / AR support -->
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
 
-    <!-- Custom component to pin model after 20 seconds -->
     <script>
       AFRAME.registerComponent('pin-after-delay', {
         init: function () {
           const model = this.el;
+          const scene = document.querySelector('a-scene');
+          const THREE = AFRAME.THREE || window.THREE;
 
-          // Wait for the 3D model to fully load before proceeding
           model.addEventListener('model-loaded', () => {
             setTimeout(() => {
-              const scene = document.querySelector('a-scene');
-              const THREE = AFRAME.THREE || window.THREE;
-
-              if (!THREE) {
-                console.error("THREE.js not found.");
-                return;
-              }
-
-              // Get model's current world position
+              // 1. Get current world position of the model
               const worldPos = new THREE.Vector3();
               model.object3D.getWorldPosition(worldPos);
 
-              // Remove GPS tracking so model stops following GPS updates
+              // 2. Remove gps-entity-place attribute to stop GPS updates
               model.removeAttribute('gps-entity-place');
 
-              // Convert world position to scene-local coordinates
-              const localPos = scene.object3D.worldToLocal(worldPos.clone());
+              // 3. Detach model from any GPS tracking parent (likely the camera or a GPS group)
+              // and reattach directly to the scene root to fix it in world space
+              scene.object3D.attach(model.object3D);
 
-              // Fix model position in the scene
-              model.setAttribute('position', `${localPos.x} ${localPos.y} ${localPos.z}`);
+              // 4. Set the position of the model to the fixed world coordinates now relative to scene
+              model.object3D.position.copy(worldPos);
 
-              console.log("Model pinned at local position:", localPos);
-            }, 20000); // Pin after 20 seconds
+              // 5. Optional: zero out rotation or keep it
+              // model.object3D.rotation.set(0, 0, 0);
+
+              console.log('Model pinned in world space at:', worldPos);
+            }, 20000);
           });
         }
       });
