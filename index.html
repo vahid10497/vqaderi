@@ -3,64 +3,50 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>GeoAR.js demo</title>
+    <title>GeoAR Pinning Example</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar-nft.js"></script>
   </head>
 
-  <body>
+  <body style="margin: 0; overflow: hidden;">
     <a-scene
       vr-mode-ui="enabled: false"
+      embedded
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
-      <!-- GPS-based model (runs at first) -->
+      <!-- GPS-tracked entity -->
       <a-entity
         id="gps-model"
         gps-entity-place="latitude: 48.29001756836221; longitude: 14.282756650237488;"
         gltf-model="My_model.glb"
         scale="5 5 5"
-        position="0 0 0"
         rotation="0 180 0"
       ></a-entity>
 
-      <!-- Marker-based model (appears after 20s) -->
-      <a-marker id="marker" type="pattern" url="pattern-marker.patt" visible="false">
-        <a-entity
-          id="marker-model"
-          gltf-model="My_model.glb"
-          scale="5 5 5"
-          position="0 0 0"
-          rotation="0 180 0"
-          visible="false"
-        ></a-entity>
-      </a-marker>
-
+      <!-- AR camera -->
       <a-camera gps-camera rotation-reader></a-camera>
     </a-scene>
 
     <script>
-      // Wait 20 seconds before switching to marker tracking
       setTimeout(() => {
-        // Hide GPS model
-        document.getElementById('gps-model').setAttribute('visible', false);
+        const gpsModel = document.getElementById('gps-model');
 
-        // Enable marker visibility
-        const marker = document.getElementById('marker');
-        const markerModel = document.getElementById('marker-model');
+        // Get the current world position
+        const worldPos = new THREE.Vector3();
+        gpsModel.object3D.getWorldPosition(worldPos);
 
-        marker.setAttribute('visible', true);
+        // Remove GPS tracking
+        gpsModel.removeAttribute('gps-entity-place');
 
-        // Optional: only show model when marker is actually detected
-        marker.addEventListener('markerFound', () => {
-          markerModel.setAttribute('visible', true);
-        });
-        marker.addEventListener('markerLost', () => {
-          markerModel.setAttribute('visible', false);
-        });
-      }, 20000);
+        // Convert world position to local (scene) coordinates
+        const scene = document.querySelector('a-scene');
+        const scenePos = scene.object3D.worldToLocal(worldPos);
+
+        // Apply fixed position
+        gpsModel.setAttribute('position', `${scenePos.x} ${scenePos.y} ${scenePos.z}`);
+
+        console.log('📍 Model pinned at position:', scenePos);
+      }, 20000); // 20 seconds
     </script>
   </body>
 </html>
-
-
