@@ -12,7 +12,6 @@
   <body style="margin: 0; overflow: hidden;">
     <a-scene
       vr-mode-ui="enabled: false"
-      embedded
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
       <a-entity
@@ -28,25 +27,25 @@
     </a-scene>
 
     <script>
+      // Wait 20 seconds to pin the model
       setTimeout(() => {
         const model = document.getElementById("model");
 
-        // Get world position
+        // Get current world position
         const worldPos = new THREE.Vector3();
         model.object3D.getWorldPosition(worldPos);
 
-        // Remove GPS tracking
-        model.removeAttribute("gps-entity-place");
+        // Stop GPS tracking
+        model.removeAttribute('gps-entity-place');
 
-        // Convert to local scene position
+        // Move model to world-local fixed position
         const scene = document.querySelector("a-scene");
-        const localPos = scene.object3D.worldToLocal(worldPos);
+        const localPos = scene.object3D.worldToLocal(worldPos.clone());
 
-        // Set fixed position
         model.setAttribute("position", `${localPos.x} ${localPos.y} ${localPos.z}`);
 
-        console.log("Model pinned at", localPos);
-      }, 20000); // after 20 seconds
+        console.log("🔒 Model pinned at:", localPos);
+      }, 20000); // 20 seconds
     </script>
   </body>
 </html>
