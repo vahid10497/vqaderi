@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>Hybrid AR (GPS + Marker)</title>
+    <title>Hybrid AR (GPS First, Marker After Delay)</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
@@ -12,10 +12,10 @@
   <body>
     <a-scene
       vr-mode-ui="enabled: false"
-      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
       embedded
+      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
-      <!-- GPS-based model -->
+      <!-- GPS Model (shown at first) -->
       <a-entity
         id="gps-model"
         gps-entity-place="latitude: 48.29001756836221; longitude: 14.282756650237488;"
@@ -25,12 +25,12 @@
         rotation="0 180 0"
       ></a-entity>
 
-      <!-- Marker-based model -->
-      <a-marker type="pattern" url="pattern-marker.patt">
+      <!-- Marker Model (hidden at first) -->
+      <a-marker id="marker" type="pattern" url="pattern-marker.patt" visible="false">
         <a-entity
           id="marker-model"
           gltf-model="My_model.glb"
-          scale="2 2 2"
+          scale="20 20 20"
           position="0 0 0"
           rotation="0 180 0"
         ></a-entity>
@@ -41,16 +41,13 @@
 
     <script>
       const gpsModel = document.getElementById("gps-model");
-      const marker = document.querySelector("a-marker");
+      const markerEl = document.getElementById("marker");
 
-      marker.addEventListener("markerFound", () => {
+      // After 20 seconds, enable the marker and hide the GPS model
+      setTimeout(() => {
         gpsModel.setAttribute("visible", false);
-      });
-
-      marker.addEventListener("markerLost", () => {
-        gpsModel.setAttribute("visible", true);
-      });
+        markerEl.setAttribute("visible", true);
+      }, 20000);
     </script>
   </body>
 </html>
-
