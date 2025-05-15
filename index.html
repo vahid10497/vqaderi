@@ -2,63 +2,64 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>GeoAR.js demo</title>
-
+    <title>Hybrid GPS + WebXR AR</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 
-    <script>
-      AFRAME.registerComponent('pin-after-delay', {
-        init: function () {
-          const model = this.el;
-          const scene = document.querySelector('a-scene');
-          const THREE = AFRAME.THREE || window.THREE;
-
-          model.addEventListener('model-loaded', () => {
-            setTimeout(() => {
-              // 1. Get current world position of the model
-              const worldPos = new THREE.Vector3();
-              model.object3D.getWorldPosition(worldPos);
-
-              // 2. Remove gps-entity-place attribute to stop GPS updates
-              model.removeAttribute('gps-entity-place');
-
-              // 3. Detach model from any GPS tracking parent (likely the camera or a GPS group)
-              // and reattach directly to the scene root to fix it in world space
-              scene.object3D.attach(model.object3D);
-
-              // 4. Set the position of the model to the fixed world coordinates now relative to scene
-              model.object3D.position.copy(worldPos);
-
-              // 5. Optional: zero out rotation or keep it
-              // model.object3D.rotation.set(0, 0, 0);
-
-              console.log('Model pinned in world space at:', worldPos);
-            }, 20000);
-          });
-        }
-      });
-    </script>
+    <style>
+      model-viewer {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: transparent;
+        z-index: 999;
+      }
+    </style>
   </head>
 
   <body>
+    <!-- AR.js Scene with GPS Placement -->
     <a-scene
       vr-mode-ui="enabled: false"
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+      embedded
+      renderer="logarithmicDepthBuffer: true;"
     >
       <a-entity
-        id="model"
-        gps-entity-place="latitude: 48.29001756836221; longitude: 14.282756650237488;"
+        id="gps-model"
         gltf-model="My_model.glb"
+        gps-entity-place="latitude: 48.29001756836221; longitude: 14.282756650237488;"
         scale="5 5 5"
-        position="0 0 0"
         rotation="0 180 0"
-        pin-after-delay
       ></a-entity>
 
       <a-camera gps-camera rotation-reader></a-camera>
     </a-scene>
+
+    <!-- WebXR Placement after 20s -->
+    <model-viewer
+      id="webxrModel"
+      src="My_model.glb"
+      ar
+      ar-modes="webxr scene-viewer quick-look"
+      camera-controls
+      auto-rotate
+      alt="AR Model"
+    ></model-viewer>
+
+    <script>
+      setTimeout(() => {
+        // Hide AR.js and show WebXR model
+        document.querySelector("a-scene").style.display = "none";
+        const modelViewer = document.getElementById("webxrModel");
+        modelViewer.style.display = "block";
+        modelViewer.activateAR();
+      }, 20000); // 20 seconds
+    </script>
   </body>
 </html>
