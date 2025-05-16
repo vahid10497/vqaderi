@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Stable AR.js Rooftop Sphere</title>
+    <title>Stable AR.js Rooftop Sphere with 5s Lock</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   </head>
@@ -63,22 +63,19 @@
             .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
         });
 
-        // Lock the rooftop sphere & anchors after first placement to stop jitter
-        let locked = false;
+        // After entity is placed, wait 5 seconds then lock its position
         window.addEventListener("gps-entity-place-added", (e) => {
-          if (locked) return; // only once
-
           const el = e.detail.el;
+          console.log("Entity placed, starting 5-second lock timer...");
 
-          // Apply positionFixed to lock in place
-          el.setAttribute("gps-entity-place", {
-            latitude: el.getAttribute("gps-entity-place").latitude,
-            longitude: el.getAttribute("gps-entity-place").longitude,
-            positionFixed: true,
-          });
-
-          locked = true;
-          console.log("Entity locked in place to reduce jitter.");
+          setTimeout(() => {
+            el.setAttribute("gps-entity-place", {
+              latitude: el.getAttribute("gps-entity-place").latitude,
+              longitude: el.getAttribute("gps-entity-place").longitude,
+              positionFixed: true,
+            });
+            console.log("Entity position locked after 5 seconds.");
+          }, 5000);
         });
       </script>
     </a-scene>
