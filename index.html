@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR.js Rooftop Sphere</title>
+    <title>Stable AR.js Rooftop Sphere</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   </head>
@@ -12,8 +12,19 @@
       embedded
       arjs="sourceType: webcam; debugUIEnabled: false;"
     >
-      <!-- Bigger red sphere on rooftop (15m above you) -->
+      <!-- Vertical anchor cylinder from ground to rooftop -->
+      <a-cylinder
+        color="#00FF00"
+        radius="0.2"
+        height="15"
+        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
+        position="0 7.5 0"
+        opacity="0.6"
+      ></a-cylinder>
+
+      <!-- Bigger red sphere on rooftop -->
       <a-sphere
+        id="rooftopSphere"
         color="red"
         radius="2.5"
         gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
@@ -36,20 +47,38 @@
         text="value: Waiting for GPS...; color: yellow; width: 6;"
       ></a-entity>
 
-      <!-- Simulate your current GPS position (1st floor window) -->
+      <!-- Camera with minDistance to filter small GPS moves -->
       <a-camera
-        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488;"
+        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488; minDistance: 5"
         rotation-reader
       ></a-camera>
 
       <script>
-        // Update the text to show your current (simulated) GPS coordinates
+        // Update GPS debug text
         window.addEventListener("gps-camera-update-position", (e) => {
           const lat = e.detail.position.latitude.toFixed(6);
           const lon = e.detail.position.longitude.toFixed(6);
           document
             .getElementById("debugText")
             .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
+        });
+
+        // Lock the rooftop sphere & anchors after first placement to stop jitter
+        let locked = false;
+        window.addEventListener("gps-entity-place-added", (e) => {
+          if (locked) return; // only once
+
+          const el = e.detail.el;
+
+          // Apply positionFixed to lock in place
+          el.setAttribute("gps-entity-place", {
+            latitude: el.getAttribute("gps-entity-place").latitude,
+            longitude: el.getAttribute("gps-entity-place").longitude,
+            positionFixed: true,
+          });
+
+          locked = true;
+          console.log("Entity locked in place to reduce jitter.");
         });
       </script>
     </a-scene>
