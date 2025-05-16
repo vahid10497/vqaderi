@@ -2,82 +2,65 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Stable AR.js Rooftop Sphere with 5s Lock</title>
+    <title>GeoAR with Fixed Position</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   </head>
   <body style="margin: 0; overflow: hidden">
     <a-scene
       vr-mode-ui="enabled: false"
-      embedded
-      arjs="sourceType: webcam; debugUIEnabled: false;"
+      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
-      <!-- Vertical anchor cylinder from ground to rooftop -->
-      <a-cylinder
-        color="#00FF00"
-        radius="0.2"
-        height="15"
-        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 7.5 0"
-        opacity="0.6"
-      ></a-cylinder>
-
-      <!-- Bigger red sphere on rooftop -->
+      <!-- Sphere with GPS position -->
       <a-sphere
-        id="rooftopSphere"
+        id="targetSphere"
+        radius="5"
         color="red"
-        radius="2.5"
         gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
         position="0 15 0"
       ></a-sphere>
 
-      <!-- Label just above the sphere -->
+      <!-- Confirmation Text -->
       <a-text
-        value="On the rooftop!"
-        color="white"
-        scale="15 15 15"
-        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 18 0"
+        id="statusText"
+        value="Searching for rooftop..."
+        position="0 2 -5"
+        look-at="[gps-camera]"
+        scale="10 10 10"
+        visible="true"
       ></a-text>
 
-      <!-- Show your simulated GPS location for debug -->
-      <a-entity
-        id="debugText"
-        position="0 0 -3"
-        text="value: Waiting for GPS...; color: yellow; width: 6;"
-      ></a-entity>
-
-      <!-- Camera with minDistance to filter small GPS moves -->
-      <a-camera
-        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488; minDistance: 5"
-        rotation-reader
-      ></a-camera>
-
-      <script>
-        // Update GPS debug text
-        window.addEventListener("gps-camera-update-position", (e) => {
-          const lat = e.detail.position.latitude.toFixed(6);
-          const lon = e.detail.position.longitude.toFixed(6);
-          document
-            .getElementById("debugText")
-            .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
-        });
-
-        // After entity is placed, wait 5 seconds then lock its position
-        window.addEventListener("gps-entity-place-added", (e) => {
-          const el = e.detail.el;
-          console.log("Entity placed, starting 5-second lock timer...");
-
-          setTimeout(() => {
-            el.setAttribute("gps-entity-place", {
-              latitude: el.getAttribute("gps-entity-place").latitude,
-              longitude: el.getAttribute("gps-entity-place").longitude,
-              positionFixed: true,
-            });
-            console.log("Entity position locked after 5 seconds.");
-          }, 5000);
-        });
-      </script>
+      <!-- Camera -->
+      <a-camera gps-camera rotation-reader></a-camera>
     </a-scene>
+
+    <script>
+      const sphere = document.getElementById('targetSphere');
+      const statusText = document.getElementById('statusText');
+
+      sphere.addEventListener('gps-entity-place-added', () => {
+        statusText.setAttribute('value', 'Model found! Fixing in 5s...');
+        // Wait 5 seconds before locking
+        setTimeout(() => {
+          // Get world position
+          const worldPos = new THREE.Vector3();
+          sphere.object3D.getWorldPosition(worldPos);
+
+          // Remove GPS tracking
+          sphere.removeAttribute('gps-entity-place');
+
+          // Lock position permanently
+          sphere.setAttribute('position', {
+            x: worldPos.x,
+            y: worldPos.y,
+            z: worldPos.z,
+          });
+
+          statusText.setAttribute('value', 'Fixed!');
+          console.log('Position fixed at:', worldPos);
+        }, 5000);
+      });
+    </script>
   </body>
 </html>
