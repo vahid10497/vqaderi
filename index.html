@@ -54,13 +54,48 @@
       ></a-camera>
 
       <script>
-        // Update GPS debug text
+        // Simple moving average filter for smoothing GPS positions
+        const smoothingWindowSize = 5;
+        const gpsPositions = [];
+
+        function averagePosition(positions) {
+          const sum = positions.reduce(
+            (acc, pos) => {
+              return {
+                latitude: acc.latitude + pos.latitude,
+                longitude: acc.longitude + pos.longitude,
+              };
+            },
+            { latitude: 0, longitude: 0 }
+          );
+          return {
+            latitude: sum.latitude / positions.length,
+            longitude: sum.longitude / positions.length,
+          };
+        }
+
+        // Update GPS debug text and smooth GPS coordinates before applying
         window.addEventListener("gps-camera-update-position", (e) => {
-          const lat = e.detail.position.latitude.toFixed(6);
-          const lon = e.detail.position.longitude.toFixed(6);
+          // Add new position
+          gpsPositions.push(e.detail.position);
+          if (gpsPositions.length > smoothingWindowSize) {
+            gpsPositions.shift(); // Keep window size
+          }
+
+          // Compute average position
+          const avgPos = averagePosition(gpsPositions);
+
+          // Update debug text with smoothed values
           document
             .getElementById("debugText")
-            .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
+            .setAttribute(
+              "text",
+              "value",
+              `You are at:\n${avgPos.latitude.toFixed(6)}, ${avgPos.longitude.toFixed(6)}`
+            );
+
+          // Optionally, you can feed smoothed GPS back to camera or entities if needed
+          // (AR.js doesn't allow easy override of gps-camera position, so we mainly smooth debug info here)
         });
 
         // Lock the rooftop sphere & anchors after first placement to stop jitter
@@ -70,7 +105,7 @@
 
           const el = e.detail.el;
 
-          // Apply positionFixed to lock in place
+          // Apply positionFixed to lock in place (reduce jitter)
           el.setAttribute("gps-entity-place", {
             latitude: el.getAttribute("gps-entity-place").latitude,
             longitude: el.getAttribute("gps-entity-place").longitude,
