@@ -2,98 +2,54 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>GPS Smoothing & Orientation Lock AR.js Example</title>
+    <title>AR.js Rooftop Sphere</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
-    <style>
-      body { margin: 0; overflow: hidden; }
-    </style>
   </head>
-  <body>
+  <body style="margin: 0; overflow: hidden">
     <a-scene
       vr-mode-ui="enabled: false"
       embedded
       arjs="sourceType: webcam; debugUIEnabled: false;"
     >
-      <!-- Sphere that faces the camera -->
+      <!-- Bigger red sphere on rooftop (15m above you) -->
       <a-sphere
-        id="rooftopSphere"
         color="red"
         radius="2.5"
         gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        look-at="[gps-camera]"
+        position="0 15 0"
       ></a-sphere>
 
-      <!-- Label above the sphere -->
+      <!-- Label just above the sphere -->
       <a-text
         value="On the rooftop!"
         color="white"
         scale="15 15 15"
         gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 4 0"
-        look-at="[gps-camera]"
+        position="0 18 0"
       ></a-text>
 
-      <!-- Debug GPS position -->
+      <!-- Show your simulated GPS location for debug -->
       <a-entity
         id="debugText"
         position="0 0 -3"
         text="value: Waiting for GPS...; color: yellow; width: 6;"
       ></a-entity>
 
-      <!-- Camera with minDistance to filter small GPS movements -->
+      <!-- Simulate your current GPS position (1st floor window) -->
       <a-camera
-        id="gpsCamera"
-        gps-camera="minDistance: 5"
+        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488;"
         rotation-reader
       ></a-camera>
 
       <script>
-        // Variables for GPS smoothing
-        const smoothingWindow = 5; // Number of samples to average
-        let latSamples = [];
-        let lonSamples = [];
-
-        // Helper: average an array of numbers
-        function average(arr) {
-          return arr.reduce((a, b) => a + b, 0) / arr.length;
-        }
-
-        const sphereEl = document.getElementById("rooftopSphere");
-        const textEl = document.querySelector("a-text");
-        const debugText = document.getElementById("debugText");
-
+        // Update the text to show your current (simulated) GPS coordinates
         window.addEventListener("gps-camera-update-position", (e) => {
-          const currentLat = e.detail.position.latitude;
-          const currentLon = e.detail.position.longitude;
-
-          // Add samples and keep size limit
-          latSamples.push(currentLat);
-          lonSamples.push(currentLon);
-          if (latSamples.length > smoothingWindow) latSamples.shift();
-          if (lonSamples.length > smoothingWindow) lonSamples.shift();
-
-          // Calculate smoothed GPS camera position
-          const smoothLat = average(latSamples);
-          const smoothLon = average(lonSamples);
-
-          // Update debug text with smoothed position
-          debugText.setAttribute("text", "value", `You are at:\n${smoothLat.toFixed(6)}, ${smoothLon.toFixed(6)}`);
-
-          // Now update sphere's GPS position smoothly by setting new lat/lon
-          // (this keeps the sphere stable despite jitter)
-          sphereEl.setAttribute("gps-entity-place", {
-            latitude: 48.28961166630169,
-            longitude: 14.282566825905297,
-            positionFixed: false
-          });
-
-          textEl.setAttribute("gps-entity-place", {
-            latitude: 48.28961166630169,
-            longitude: 14.282566825905297,
-            positionFixed: false
-          });
+          const lat = e.detail.position.latitude.toFixed(6);
+          const lon = e.detail.position.longitude.toFixed(6);
+          document
+            .getElementById("debugText")
+            .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
         });
       </script>
     </a-scene>
