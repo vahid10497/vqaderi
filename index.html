@@ -14,14 +14,25 @@
       embedded
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
+      <!-- Debug Sphere -->
+      <a-sphere
+        radius="2"
+        color="red"
+        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
+        position="0 20 0"
+      ></a-sphere>
+
+      <!-- Your Text -->
       <a-text
         value="This text stays at the rooftop!"
         scale="120 120 120"
         gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 10 0" <!-- Move it higher to simulate being on the rooftop -->
+        position="0 20 0"
       ></a-text>
 
+      <!-- GPS Camera -->
       <a-camera gps-camera rotation-reader></a-camera>
     </a-scene>
   </body>
 </html>
+
