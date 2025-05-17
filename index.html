@@ -1,14 +1,29 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8" />
+    <title>MindAR.js Full-Screen Demo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+
     <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- MindAR A-Frame integration -->
+    <!-- MindAR core & A-Frame integration -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-    <style>body { margin:0; overflow:hidden; }</style>
+
+    <style>
+      /* Make sure nothing in the page constrains the scene */
+      body, html {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
   </head>
   <body>
+    <!-- Removed `embedded` so it fills the whole window -->
     <a-scene
       mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: true;"
       color-space="sRGB"
@@ -16,80 +31,27 @@
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
       debugUIEnabled="false"
-      embedded
     >
       <a-assets>
-        <img
-          id="cardImage"
-          src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png"
-        />
-        <a-asset-item
-          id="avatarModel"
-          src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/softmind/scene.gltf"
-        ></a-asset-item>
+        <img id="cardImage" src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png" />
+        <a-asset-item id="avatarModel"
+          src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/softmind/scene.gltf">
+        </a-asset-item>
       </a-assets>
 
-      <!-- AR camera -->
+      <!-- camera -->
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- Tracker entity -->
-      <a-entity
-        id="tracker"
-        mindar-image-target="targetIndex: 0"
-        visible="true"
-      >
-        <a-plane
-          src="#cardImage"
-          position="0 0 0"
-          height="0.552"
-          width="1"
-          rotation="0 0 0"
-        ></a-plane>
-        <a-gltf-model
-          id="liveModel"
+      <!-- tracker -->
+      <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+        <a-plane src="#cardImage" position="0 0 0" height="0.552" width="1"></a-plane>
+        <a-gltf-model id="liveModel"
           src="#avatarModel"
           position="0 0 0.1"
           scale="0.005 0.005 0.005"
-          rotation="0 0 0"
-          animation="property: position; to: 0 0.1 0.1; dur: 1000; easing: easeInOutQuad; loop: true; dir: alternate"
-        ></a-gltf-model>
+          animation="property: position; to: 0 0.1 0.1; dur: 1000; easing: easeInOutQuad; loop: true; dir: alternate">
+        </a-gltf-model>
       </a-entity>
     </a-scene>
-
-    <script>
-      const sceneEl   = document.querySelector('a-scene');
-      const trackerEl = document.getElementById('tracker');
-      const liveModel = document.getElementById('liveModel');
-      let pinnedClone = null;
-
-      trackerEl.addEventListener('targetFound', () => {
-        // only pin once
-        if (pinnedClone) return;
-
-        // 1) capture world transform of trackerEl
-        const worldMatrix = trackerEl.object3D.matrixWorld.clone();
-
-        // 2) create a new entity and clone your model into it
-        pinnedClone = document.createElement('a-entity');
-        const cloneModel = liveModel.cloneNode(true);
-        pinnedClone.appendChild(cloneModel);
-
-        // 3) apply the world transform to the new entity
-        pinnedClone.object3D.matrix.copy(worldMatrix);
-        pinnedClone.object3D.matrix.decompose(
-          pinnedClone.object3D.position,
-          pinnedClone.object3D.quaternion,
-          pinnedClone.object3D.scale
-        );
-
-        // 4) add to the scene root
-        sceneEl.appendChild(pinnedClone);
-
-        // 5) hide the original tracker so it never hides again
-        trackerEl.setAttribute('visible', 'false');
-
-        console.log('▶️ Pinned model into world-space');
-      });
-    </script>
   </body>
 </html>
