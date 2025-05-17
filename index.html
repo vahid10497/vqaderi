@@ -1,21 +1,32 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>AR.js NFT Pin & Forget (Lime Box)</title>
+    <title>AR.js NFT Pin & Forget (Fixed Layout & Debug)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- A-Frame core -->
+    <!-- A-Frame -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <!-- AR.js with NFT support -->
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
     <style>
-      html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
-      a-scene { width:100%; height:100%; position:absolute; top:0; left:0; }
+      html, body {
+        margin: 0; padding: 0; overflow: hidden;
+        width: 100%; height: 100%;
+      }
+      a-scene {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+      }
     </style>
   </head>
   <body>
-    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
-      <!-- NFT marker entity -->
+    <a-scene
+      arjs="sourceType: webcam;
+            trackingMethod: best;
+            debugUIEnabled: true;"
+    >
+      <!-- NFT marker -->
       <a-nft
         id="nftMarker"
         type="nft"
@@ -26,10 +37,18 @@
         smoothThreshold="5"
         emitevents="true"
       >
-        <!-- Lime-green box as your pinned content -->
-        <a-box id="pinBox" color="lime" depth="0.2" height="0.2" width="0.2" position="0 0.1 0"></a-box>
+        <!-- Lime-green box to confirm new code -->
+        <a-box
+          id="pinBox"
+          color="lime"
+          depth="0.2"
+          height="0.2"
+          width="0.2"
+          position="0 0.1 0"
+        ></a-box>
       </a-nft>
 
+      <!-- Standard camera -->
       <a-entity camera></a-entity>
     </a-scene>
 
@@ -41,7 +60,7 @@
           url: nftEl.getAttribute('url'),
           positionFixed: true
         });
-        console.log('🔒 NFT positionFixed — box will stay lime-green and pinned');
+        console.log('🔒 NFT positionFixed — box will stay in view');
       });
     </script>
   </body>
