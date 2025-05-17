@@ -2,102 +2,33 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Stable AR.js Rooftop Sphere with Dynamic Rotation Smoothing</title>
+    <title>AR.js NFT Marker Example</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- AR.js with NFT support -->
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   </head>
-  <body style="margin: 0; overflow: hidden">
+
+  <body style="margin: 0; overflow: hidden;">
     <a-scene
       vr-mode-ui="enabled: false"
       embedded
-      arjs="sourceType: webcam; debugUIEnabled: false;"
+      arjs="trackingMethod: nft; sourceType: webcam; debugUIEnabled: false;"
     >
-      <!-- Vertical anchor cylinder from ground to rooftop -->
-      <a-cylinder
-        color="#00FF00"
-        radius="0.2"
-        height="15"
-        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 7.5 0"
-        opacity="0.6"
-      ></a-cylinder>
+      <!-- NFT marker entity -->
+      <a-nft
+        type="nft"
+        url="./marker" 
+        smooth="true" 
+        smoothCount="10" 
+        smoothTolerance="0.01" 
+        smoothThreshold="5"
+      >
+        <!-- Your 3D model or primitive that appears when marker is detected -->
+        <a-box color="blue" depth="0.5" height="0.5" width="0.5" position="0 0.25 0"></a-box>
+      </a-nft>
 
-      <!-- Bigger red sphere on rooftop -->
-      <a-sphere
-        id="rooftopSphere"
-        color="red"
-        radius="2.5"
-        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 15 0"
-      ></a-sphere>
-
-      <!-- Label just above the sphere -->
-      <a-text
-        value="On the rooftop!"
-        color="white"
-        scale="15 15 15"
-        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-        position="0 18 0"
-      ></a-text>
-
-      <!-- Show your simulated GPS location for debug -->
-      <a-entity
-        id="debugText"
-        position="0 0 -3"
-        text="value: Waiting for GPS...; color: yellow; width: 6;"
-      ></a-entity>
-
-      <!-- Camera with minDistance to filter small GPS moves -->
-      <a-camera
-        id="camera"
-        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488; minDistance: 5"
-        rotation-reader
-      ></a-camera>
-
-      <script>
-        // Update GPS debug text
-        window.addEventListener("gps-camera-update-position", (e) => {
-          const lat = e.detail.position.latitude.toFixed(6);
-          const lon = e.detail.position.longitude.toFixed(6);
-          document
-            .getElementById("debugText")
-            .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
-        });
-
-        // Lock the rooftop sphere & anchors after first placement to stop jitter
-        let locked = false;
-        window.addEventListener("gps-entity-place-added", (e) => {
-          if (locked) return; // only once
-
-          const el = e.detail.el;
-
-          // Apply positionFixed to lock in place
-          el.setAttribute("gps-entity-place", {
-            latitude: el.getAttribute("gps-entity-place").latitude,
-            longitude: el.getAttribute("gps-entity-place").longitude,
-            positionFixed: true,
-          });
-
-          locked = true;
-          console.log("Entity locked in place to reduce jitter.");
-        });
-
-        // Dynamic rotation smoothing component
-        AFRAME.registerComponent("dynamic-rotation-smoother", {
-          schema: {
-            minAlpha: { type: "number", default: 0.05 }, // minimum smoothing factor
-            maxAlpha: { type: "number", default: 0.3 },  // max smoothing factor (less smoothing)
-            threshold: { type: "number", default: 0.05 }, // rotation difference threshold in radians
-          },
-          init: function () {
-            this.previousRotation = new THREE.Euler();
-            this.smoothedRotation = new THREE.Euler();
-            this.firstUpdate = true;
-          },
-          tick: function () {
-            const el = this.el;
-            const currentRotation = el.object3D.rotation;
-
-            if (this.firstUpdate) {
-              this.previousRotation.copy(currentRotation);
-              this.smoothedRotation.copy(currentRotation
+      <!-- Camera -->
+      <a-entity camera></a-entity>
+    </a-scene>
+  </body>
+</html>
