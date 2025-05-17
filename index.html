@@ -2,62 +2,96 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>MindAR Pin & Forget (Position Only)</title>
+    <title>WebXR Hit‐Test Anchor Demo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- MindAR core & A-Frame integration -->
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
     <style>
       html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
-      a-scene  { width:100%; height:100%; position:absolute; top:0; left:0; }
+      a-scene { width:100%; height:100%; }
     </style>
   </head>
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true"
-      vr-mode-ui="enabled: false"
-      device-orientation-permission-ui="enabled: true"
-      debugUIEnabled="false"
+      renderer="colorManagement: true; physicallyCorrectLights"
+      xr="mode: immersive-ar; requiredFeatures: hit-test"
     >
-      <a-camera look-controls="enabled: false"></a-camera>
+      <!-- Reticle: shows where your sphere will land -->
+      <a-entity
+        id="reticle"
+        visible="false"
+        geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.05"
+        material="shader: flat; color: yellow"
+      ></a-entity>
 
-      <!-- Tracker (empty) -->
-      <a-entity id="tracker" mindar-image-target="targetIndex: 0"></a-entity>
+      <!-- Your AR camera -->
+      <a-entity camera look-controls="enabled: false"></a-entity>
     </a-scene>
 
     <script>
-      (async () => {
-        const sceneEl   = document.querySelector('a-scene');
-        const trackerEl = document.getElementById('tracker');
-        let pinned = false;
+      // Grab our scene and reticle
+      const sceneEl   = document.querySelector('a-scene');
+      const reticleEl = document.getElementById('reticle');
 
-        trackerEl.addEventListener('targetFound', async () => {
-          if (pinned) return;
-          pinned = true;
+      let hitTestSource = null;
+      let localRefSpace = null;
+      let anchored      = false;
 
-          // 1) Get world position of the tracker
-          const worldPos = new THREE.Vector3();
-          trackerEl.object3D.getWorldPosition(worldPos);
+      // When the XR session starts, request a hit-test source
+      sceneEl.renderer.xr.addEventListener('sessionstart', async () => {
+        const session = sceneEl.renderer.xr.getSession();
+        // Viewer reference space (camera)
+        localRefSpace = await session.requestReferenceSpace('viewer');
+        // Hit-test source from viewer
+        hitTestSource = await session.requestHitTestSource({ space: localRefSpace });
+      });
 
-          // 2) Create the sphere and position it
-          const sphere = document.createElement('a-sphere');
-          sphere.setAttribute('position',
-            `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+      // On each XR frame, update the reticle
+      sceneEl.renderer.xr.addEventListener('frame', (time, frame) => {
+        if (!hitTestSource || anchored) return;
+
+        const referenceSpace = sceneEl.renderer.xr.getReferenceSpace();
+        const hitResults     = frame.getHitTestResults(hitTestSource);
+
+        if (hitResults.length) {
+          const hitPose = hitResults[0].getPose(referenceSpace);
+          reticleEl.object3D.visible = true;
+          reticleEl.object3D.position.set(
+            hitPose.transform.position.x,
+            hitPose.transform.position.y,
+            hitPose.transform.position.z
           );
-          sphere.setAttribute('radius', '0.2');
-          sphere.setAttribute('color', 'yellow');
+          reticleEl.object3D.quaternion.set(
+            hitPose.transform.orientation.x,
+            hitPose.transform.orientation.y,
+            hitPose.transform.orientation.z,
+            hitPose.transform.orientation.w
+          );
+        } else {
+          reticleEl.object3D.visible = false;
+        }
+      });
 
-          // 3) Add it outside the tracker
-          sceneEl.appendChild(sphere);
+      // On screen tap (select), place a permanent sphere
+      sceneEl.addEventListener('select', () => {
+        if (anchored || !reticleEl.object3D.visible) return;
+        anchored = true;
 
-          // 4) Stop MindAR so it never hides or searches again
-          await sceneEl.components['mindar-image'].stop();
+        // Create sphere at the reticle's position
+        const sphere = document.createElement('a-sphere');
+        sphere.setAttribute('position', reticleEl.getAttribute('position'));
+        sphere.setAttribute('rotation', reticleEl.getAttribute('rotation'));
+        sphere.setAttribute('radius', '0.3');
+        sphere.setAttribute('color', 'cyan');
+        sceneEl.appendChild(sphere);
 
-          console.log('✅ Sphere pinned at', worldPos);
-        });
-      })();
+        // Hide reticle and stop further hit testing
+        reticleEl.object3D.visible = false;
+        if (hitTestSource) {
+          hitTestSource.cancel();
+          hitTestSource = null;
+        }
+      });
     </script>
   </body>
 </html>
