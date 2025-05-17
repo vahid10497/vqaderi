@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Stable AR.js Rooftop Sphere</title>
+    <title>Stable AR.js Rooftop Sphere with Orientation Smoothing</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   </head>
@@ -49,53 +49,18 @@
 
       <!-- Camera with minDistance to filter small GPS moves -->
       <a-camera
+        id="camera"
         gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488; minDistance: 5"
-        rotation-reader
       ></a-camera>
 
       <script>
-        // Simple moving average filter for smoothing GPS positions
-        const smoothingWindowSize = 5;
-        const gpsPositions = [];
-
-        function averagePosition(positions) {
-          const sum = positions.reduce(
-            (acc, pos) => {
-              return {
-                latitude: acc.latitude + pos.latitude,
-                longitude: acc.longitude + pos.longitude,
-              };
-            },
-            { latitude: 0, longitude: 0 }
-          );
-          return {
-            latitude: sum.latitude / positions.length,
-            longitude: sum.longitude / positions.length,
-          };
-        }
-
-        // Update GPS debug text and smooth GPS coordinates before applying
+        // Update GPS debug text
         window.addEventListener("gps-camera-update-position", (e) => {
-          // Add new position
-          gpsPositions.push(e.detail.position);
-          if (gpsPositions.length > smoothingWindowSize) {
-            gpsPositions.shift(); // Keep window size
-          }
-
-          // Compute average position
-          const avgPos = averagePosition(gpsPositions);
-
-          // Update debug text with smoothed values
+          const lat = e.detail.position.latitude.toFixed(6);
+          const lon = e.detail.position.longitude.toFixed(6);
           document
             .getElementById("debugText")
-            .setAttribute(
-              "text",
-              "value",
-              `You are at:\n${avgPos.latitude.toFixed(6)}, ${avgPos.longitude.toFixed(6)}`
-            );
-
-          // Optionally, you can feed smoothed GPS back to camera or entities if needed
-          // (AR.js doesn't allow easy override of gps-camera position, so we mainly smooth debug info here)
+            .setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
         });
 
         // Lock the rooftop sphere & anchors after first placement to stop jitter
@@ -105,7 +70,6 @@
 
           const el = e.detail.el;
 
-          // Apply positionFixed to lock in place (reduce jitter)
           el.setAttribute("gps-entity-place", {
             latitude: el.getAttribute("gps-entity-place").latitude,
             longitude: el.getAttribute("gps-entity-place").longitude,
@@ -114,6 +78,38 @@
 
           locked = true;
           console.log("Entity locked in place to reduce jitter.");
+        });
+
+        // Orientation smoothing component
+        AFRAME.registerComponent("rotation-smoother", {
+          schema: {
+            alpha: { type: "number", default: 0.3 }, // smoothing factor (0 < alpha < 1)
+          },
+          init: function () {
+            this.smoothedRotation = new THREE.Euler();
+            this.smoothedRotation.copy(this.el.object3D.rotation);
+          },
+          tick: function () {
+            const currentRotation = this.el.object3D.rotation;
+            const alpha = this.data.alpha;
+
+            // Smooth each Euler angle separately
+            this.smoothedRotation.x =
+              this.smoothedRotation.x * (1 - alpha) + currentRotation.x * alpha;
+            this.smoothedRotation.y =
+              this.smoothedRotation.y * (1 - alpha) + currentRotation.y * alpha;
+            this.smoothedRotation.z =
+              this.smoothedRotation.z * (1 - alpha) + currentRotation.z * alpha;
+
+            // Apply smoothed rotation back
+            this.el.object3D.rotation.copy(this.smoothedRotation);
+          },
+        });
+
+        // Attach smoothing to camera
+        document.addEventListener("DOMContentLoaded", () => {
+          const camera = document.getElementById("camera");
+          camera.setAttribute("rotation-smoother", "");
         });
       </script>
     </a-scene>
