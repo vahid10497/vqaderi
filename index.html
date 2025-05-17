@@ -2,25 +2,91 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>GeoAR.js demo</title>
+    <title>AR.js Rooftop Sphere (Stable)</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <script src="https://unpkg.com/aframe-look-at-component@1.0.0/dist/aframe-look-at-component.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   </head>
-
-  <body>
+  <body style="margin: 0; overflow: hidden">
     <a-scene
       vr-mode-ui="enabled: false"
-      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+      embedded
+      arjs="sourceType: webcam; debugUIEnabled: false;"
     >
+      <!-- Rooftop sphere with smoothing -->
+      <a-sphere
+        id="rooftop-sphere"
+        color="red"
+        radius="2.5"
+        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
+        position="0 15 0"
+        visible="false"
+      ></a-sphere>
+
+      <!-- Text label above the sphere -->
       <a-text
-        value="This content will always face you."
-        look-at="[gps-camera]"
-        scale="120 120 120"
-        gps-entity-place="latitude: 48.2898271 ; longitude: 48.2898271;"
+        id="rooftop-label"
+        value="On the rooftop!"
+        color="white"
+        scale="15 15 15"
+        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
+        position="0 18 0"
+        visible="false"
       ></a-text>
-      <a-camera gps-camera rotation-reader> </a-camera>
+
+      <!-- Debug text for user location -->
+      <a-entity
+        id="debugText"
+        position="0 0 -3"
+        text="value: Waiting for GPS...; color: yellow; width: 6;"
+      ></a-entity>
+
+      <!-- Camera with filtering and smoothing -->
+      <a-camera
+        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488; minDistance: 8"
+        rotation-reader
+      ></a-camera>
+
+      <script>
+        // Update debug coordinates text
+        window.addEventListener("gps-camera-update-position", (e) => {
+          const lat = e.detail.position.latitude.toFixed(6);
+          const lon = e.detail.position.longitude.toFixed(6);
+          document.getElementById("debugText").setAttribute("text", "value", `You are at:\n${lat}, ${lon}`);
+        });
+
+        // Stabilize by showing sphere only once it's within 20 meters
+        const sphere = document.getElementById("rooftop-sphere");
+        const label = document.getElementById("rooftop-label");
+        let shown = false;
+
+        function getDistanceMeters(lat1, lon1, lat2, lon2) {
+          const R = 6371000;
+          const toRad = (deg) => deg * Math.PI / 180;
+          const dLat = toRad(lat2 - lat1);
+          const dLon = toRad(lon2 - lon1);
+          const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c;
+        }
+
+        window.addEventListener("gps-camera-update-position", (e) => {
+          if (shown) return;
+          const userLat = e.detail.position.latitude;
+          const userLon = e.detail.position.longitude;
+          const targetLat = 48.28961166630169;
+          const targetLon = 14.282566825905297;
+          const distance = getDistanceMeters(userLat, userLon, targetLat, targetLon);
+
+          if (distance < 20) {
+            sphere.setAttribute("visible", true);
+            label.setAttribute("visible", true);
+            shown = true;
+            console.log("Rooftop object stabilized and shown.");
+          }
+        });
+      </script>
     </a-scene>
   </body>
 </html>
