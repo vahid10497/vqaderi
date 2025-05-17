@@ -51,7 +51,6 @@
       <a-camera
         gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488; minDistance: 5"
         rotation-reader
-        rotation-smoother
       ></a-camera>
 
       <script>
@@ -82,30 +81,4 @@
           console.log("Entity locked in place to reduce jitter.");
         });
 
-        // Rotation smoother component with faster smoothing (less delay)
-        AFRAME.registerComponent("rotation-smoother", {
-          schema: {
-            alpha: { type: "number", default: 0.7 }, // higher alpha = less delay, less smoothing
-          },
-          init: function () {
-            this.smoothedRotation = new THREE.Euler();
-            this.smoothedRotation.copy(this.el.object3D.rotation);
-          },
-          tick: function () {
-            const currentRotation = this.el.object3D.rotation;
-            const alpha = this.data.alpha;
-
-            this.smoothedRotation.x =
-              this.smoothedRotation.x * (1 - alpha) + currentRotation.x * alpha;
-            this.smoothedRotation.y =
-              this.smoothedRotation.y * (1 - alpha) + currentRotation.y * alpha;
-            this.smoothedRotation.z =
-              this.smoothedRotation.z * (1 - alpha) + currentRotation.z * alpha;
-
-            this.el.object3D.rotation.copy(this.smoothedRotation);
-          },
-        });
-      </script>
-    </a-scene>
-  </body>
-</html>
+        // Rotation
