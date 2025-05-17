@@ -2,56 +2,60 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>MindAR.js Full-Screen Demo</title>
+    <title>Pin & Forget Demo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-    <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- MindAR core & A-Frame integration -->
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-
-    <style>
-      /* Make sure nothing in the page constrains the scene */
-      body, html {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
+    <style>body{margin:0;overflow:hidden}</style>
   </head>
   <body>
-    <!-- Removed `embedded` so it fills the whole window -->
     <a-scene
-      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: true;"
-      color-space="sRGB"
-      renderer="colorManagement: true, physicallyCorrectLights"
+      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
       vr-mode-ui="enabled: false"
-      device-orientation-permission-ui="enabled: false"
-      debugUIEnabled="false"
+      device-orientation-permission-ui="enabled: true"
+      embedded
     >
-      <a-assets>
-        <img id="cardImage" src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png" />
-        <a-asset-item id="avatarModel"
-          src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/softmind/scene.gltf">
-        </a-asset-item>
-      </a-assets>
+      <a-camera look-controls="enabled: false"></a-camera>
 
-      <!-- camera -->
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-      <!-- tracker -->
+      <!-- Tracker with your content -->
       <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-        <a-plane src="#cardImage" position="0 0 0" height="0.552" width="1"></a-plane>
-        <a-gltf-model id="liveModel"
-          src="#avatarModel"
-          position="0 0 0.1"
-          scale="0.005 0.005 0.005"
-          animation="property: position; to: 0 0.1 0.1; dur: 1000; easing: easeInOutQuad; loop: true; dir: alternate">
-        </a-gltf-model>
+        <!-- replace below with your model or primitive -->
+        <a-box id="trackerContent" position="0 0.5 0" color="orange"></a-box>
       </a-entity>
     </a-scene>
+
+    <script>
+      const sceneEl   = document.querySelector('a-scene');
+      const trackerEl = document.getElementById('tracker');
+      const contentEl = document.getElementById('trackerContent');
+      let pinnedEl;
+
+      trackerEl.addEventListener('targetFound', () => {
+        if (pinnedEl) return;  // only pin once
+
+        // 1) Capture world matrix of the tracker
+        const worldMatrix = trackerEl.object3D.matrixWorld.clone();
+
+        // 2) Create a new entity and clone your content into it
+        pinnedEl = document.createElement('a-entity');
+        const clone = contentEl.cloneNode(true);
+        pinnedEl.appendChild(clone);
+
+        // 3) Apply the world transform to the new entity
+        pinnedEl.object3D.matrix.copy(worldMatrix);
+        pinnedEl.object3D.matrix.decompose(
+          pinnedEl.object3D.position,
+          pinnedEl.object3D.quaternion,
+          pinnedEl.object3D.scale
+        );
+
+        // 4) Add it to the scene root
+        sceneEl.appendChild(pinnedEl);
+
+        // 5) Hide the original tracker so content never disappears
+        trackerEl.setAttribute('visible', 'false');
+      });
+    </script>
   </body>
 </html>
