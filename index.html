@@ -2,72 +2,47 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>MindAR Pin & Forget (Definitive Fix)</title>
+    <title>AR.js NFT Pin & Forget (Lime Box)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- MindAR core & A-Frame integration -->
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <!-- AR.js with NFT support -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
     <style>
       html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
-      a-scene { width:100% !important; height:100% !important; position:absolute; top:0; left:0; }
+      a-scene { width:100%; height:100%; position:absolute; top:0; left:0; }
     </style>
   </head>
   <body>
-    <a-scene
-      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
-      vr-mode-ui="enabled: false"
-      device-orientation-permission-ui="enabled: true"
-      debugUIEnabled="false"
-    >
-      <a-camera look-controls="enabled: false"></a-camera>
+    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+      <!-- NFT marker entity -->
+      <a-nft
+        id="nftMarker"
+        type="nft"
+        url="./marker"
+        smooth="true"
+        smoothCount="10"
+        smoothTolerance="0.01"
+        smoothThreshold="5"
+        emitevents="true"
+      >
+        <!-- Lime-green box as your pinned content -->
+        <a-box id="pinBox" color="lime" depth="0.2" height="0.2" width="0.2" position="0 0.1 0"></a-box>
+      </a-nft>
 
-      <!-- Tracker entity -->
-      <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-        <!-- Magenta box so you can see it’s the right code -->
-        <a-box id="trackerContent" position="0 0.5 0" color="magenta"></a-box>
-      </a-entity>
+      <a-entity camera></a-entity>
     </a-scene>
 
     <script>
-      (async () => {
-        const sceneEl   = document.querySelector('a-scene');
-        const trackerEl = document.getElementById('tracker');
-        const contentEl = document.getElementById('trackerContent');
-        let pinnedEl;
-
-        trackerEl.addEventListener('targetFound', async () => {
-          if (pinnedEl) return; // only pin once
-
-          // 1) Capture the world transform of the tracker
-          const worldMatrix = trackerEl.object3D.matrixWorld.clone();
-
-          // 2) Create a new entity and clone your content into it
-          pinnedEl = document.createElement('a-entity');
-          const clone = contentEl.cloneNode(true);
-          pinnedEl.appendChild(clone);
-
-          // 3) Apply the world transform to your pinned clone
-          pinnedEl.object3D.matrix.copy(worldMatrix);
-          pinnedEl.object3D.matrix.decompose(
-            pinnedEl.object3D.position,
-            pinnedEl.object3D.quaternion,
-            pinnedEl.object3D.scale
-          );
-
-          // 4) Add pinned clone to the scene root
-          sceneEl.appendChild(pinnedEl);
-
-          // 5) Hide the original tracker so it never toggles again
-          trackerEl.setAttribute('visible', 'false');
-
-          // 6) **Stop** the MindAR engine so it never hides or searches again
-          await sceneEl.components['mindar-image'].stop();
-
-          console.log('✅ Pinned content and stopped MindAR for good.');
+      const nftEl = document.getElementById('nftMarker');
+      nftEl.addEventListener('markerFound', () => {
+        // Freeze the NFT entity in place
+        nftEl.setAttribute('nft', {
+          url: nftEl.getAttribute('url'),
+          positionFixed: true
         });
-      })();
+        console.log('🔒 NFT positionFixed — box will stay lime-green and pinned');
+      });
     </script>
   </body>
 </html>
