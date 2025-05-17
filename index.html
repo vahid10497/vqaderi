@@ -2,66 +2,72 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>AR.js NFT Pin & Forget (Fixed Layout & Debug)</title>
+    <title>MindAR Pin & Forget with Sphere</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- A-Frame -->
+    <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- AR.js with NFT support -->
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <!-- MindAR core & A-Frame integration -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
     <style>
       html, body {
         margin: 0; padding: 0; overflow: hidden;
         width: 100%; height: 100%;
       }
       a-scene {
-        position: absolute;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute; top: 0; left: 0;
       }
     </style>
   </head>
+
   <body>
     <a-scene
-      arjs="sourceType: webcam;
-            trackingMethod: best;
-            debugUIEnabled: true;"
+      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true"
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: true"
+      debugUIEnabled="false"
     >
-      <!-- NFT marker -->
-      <a-nft
-        id="nftMarker"
-        type="nft"
-        url="./marker"
-        smooth="true"
-        smoothCount="10"
-        smoothTolerance="0.01"
-        smoothThreshold="5"
-        emitevents="true"
-      >
-        <!-- Lime-green box to confirm new code -->
-        <a-box
-          id="pinBox"
-          color="lime"
-          depth="0.2"
-          height="0.2"
-          width="0.2"
-          position="0 0.1 0"
-        ></a-box>
-      </a-nft>
+      <!-- AR Camera -->
+      <a-camera look-controls="enabled: false"></a-camera>
 
-      <!-- Standard camera -->
-      <a-entity camera></a-entity>
+      <!-- 1) Empty tracker entity for detection only -->
+      <a-entity id="tracker" mindar-image-target="targetIndex: 0"></a-entity>
     </a-scene>
 
     <script>
-      const nftEl = document.getElementById('nftMarker');
-      nftEl.addEventListener('markerFound', () => {
-        // Freeze the NFT entity in place
-        nftEl.setAttribute('nft', {
-          url: nftEl.getAttribute('url'),
-          positionFixed: true
+      (async () => {
+        const sceneEl   = document.querySelector('a-scene');
+        const trackerEl = document.getElementById('tracker');
+        let pinned = false;
+
+        trackerEl.addEventListener('targetFound', async () => {
+          if (pinned) return;
+          pinned = true;
+
+          // 2) Decompose the world matrix into position & quaternion
+          const position = new THREE.Vector3();
+          const quaternion = new THREE.Quaternion();
+          const scale = new THREE.Vector3();
+          trackerEl.object3D.matrixWorld.decompose(position, quaternion, scale);
+
+          // 3) Create and configure the sphere at that transform
+          const sphere = document.createElement('a-sphere');
+          sphere.setAttribute('position', `${position.x.toFixed(3)} ${position.y.toFixed(3)} ${position.z.toFixed(3)}`);
+          const euler = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+          sphere.setAttribute('rotation', `${THREE.Math.radToDeg(euler.x).toFixed(1)} ${THREE.Math.radToDeg(euler.y).toFixed(1)} ${THREE.Math.radToDeg(euler.z).toFixed(1)}`);
+          sphere.setAttribute('radius', '0.2');
+          sphere.setAttribute('color', 'yellow');
+
+          // 4) Add it outside the tracker
+          sceneEl.appendChild(sphere);
+
+          // 5) Stop MindAR so it never hides or searches again
+          await sceneEl.components['mindar-image'].stop();
+          console.log('✅ Sphere pinned and MindAR stopped.');
         });
-        console.log('🔒 NFT positionFixed — box will stay in view');
-      });
+      })();
     </script>
   </body>
 </html>
