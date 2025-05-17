@@ -1,78 +1,73 @@
-<!DOCTYPE html><html lang="en">
+<!DOCTYPE html>
+<html>
   <head>
     <meta charset="utf-8" />
+    <title>MindAR Pin & Forget (Definitive Fix)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MindAR Pin & Forget (Fixed Commit)</title>
     <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <!-- MindAR core & A-Frame integration -->
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
     <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        width: 100%;
-        height: 100%;
-      }
-      a-scene {
-        width: 100% !important;
-        height: 100% !important;
-        position: absolute;
-        top: 0;
-        left: 0;
-      }
+      html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
+      a-scene { width:100% !important; height:100% !important; position:absolute; top:0; left:0; }
     </style>
   </head>
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true"
+      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: true"
       debugUIEnabled="false"
     >
-      <a-camera look-controls="enabled: false"></a-camera><!-- Tracker entity -->
-  <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-    <!-- Box color changed to cyan -->
-    <a-box id="trackerContent" position="0 0.5 0" color="cyan"></a-box>
-  </a-entity>
-</a-scene>
+      <a-camera look-controls="enabled: false"></a-camera>
 
-<script>
-  (function () {
-    const sceneEl = document.querySelector('a-scene');
-    const trackerEl = document.getElementById('tracker');
-    const contentEl = document.getElementById('trackerContent');
-    let pinnedEl;
+      <!-- Tracker entity -->
+      <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+        <!-- Magenta box so you can see it’s the right code -->
+        <a-box id="trackerContent" position="0 0.5 0" color="magenta"></a-box>
+      </a-entity>
+    </a-scene>
 
-    trackerEl.addEventListener('targetFound', () => {
-      if (pinnedEl) return; // only pin once
+    <script>
+      (async () => {
+        const sceneEl   = document.querySelector('a-scene');
+        const trackerEl = document.getElementById('tracker');
+        const contentEl = document.getElementById('trackerContent');
+        let pinnedEl;
 
-      // 1) Capture world transform
-      const worldMatrix = trackerEl.object3D.matrixWorld.clone();
+        trackerEl.addEventListener('targetFound', async () => {
+          if (pinnedEl) return; // only pin once
 
-      // 2) Create pinned entity
-      pinnedEl = document.createElement('a-entity');
-      const clone = contentEl.cloneNode(true);
-      pinnedEl.appendChild(clone);
+          // 1) Capture the world transform of the tracker
+          const worldMatrix = trackerEl.object3D.matrixWorld.clone();
 
-      // 3) Apply transform
-      pinnedEl.object3D.matrix.copy(worldMatrix);
-      pinnedEl.object3D.matrix.decompose(
-        pinnedEl.object3D.position,
-        pinnedEl.object3D.quaternion,
-        pinnedEl.object3D.scale
-      );
+          // 2) Create a new entity and clone your content into it
+          pinnedEl = document.createElement('a-entity');
+          const clone = contentEl.cloneNode(true);
+          pinnedEl.appendChild(clone);
 
-      // 4) Append to scene
-      sceneEl.appendChild(pinnedEl);
+          // 3) Apply the world transform to your pinned clone
+          pinnedEl.object3D.matrix.copy(worldMatrix);
+          pinnedEl.object3D.matrix.decompose(
+            pinnedEl.object3D.position,
+            pinnedEl.object3D.quaternion,
+            pinnedEl.object3D.scale
+          );
 
-      // 5) Disable further tracking
-      trackerEl.removeAttribute('mindar-image-target');
-    });
-  })();
-</script>
+          // 4) Add pinned clone to the scene root
+          sceneEl.appendChild(pinnedEl);
 
+          // 5) Hide the original tracker so it never toggles again
+          trackerEl.setAttribute('visible', 'false');
+
+          // 6) **Stop** the MindAR engine so it never hides or searches again
+          await sceneEl.components['mindar-image'].stop();
+
+          console.log('✅ Pinned content and stopped MindAR for good.');
+        });
+      })();
+    </script>
   </body>
 </html>
