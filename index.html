@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Pin & Forget (Attribute Copy)</title>
+  <title>MindAR Pin & Forget (Final Debug)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR.js -->
+  <!-- MindAR.js A-Frame Integration (includes core) -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <style>body,html{margin:0;padding:0;overflow:hidden;width:100%;height:100}a-scene{width:100%;height:100}</style>
+  <style>
+    body,html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
+    a-scene     { width:100%; height:100 }
+  </style>
 </head>
 <body>
   <a-scene
@@ -38,33 +41,51 @@
       const liveBox   = document.getElementById('liveBox');
       let pinned = false;
 
-      trackerEl.addEventListener('targetFound', async () => {
-        if (pinned) return;
+      console.log('▶️ Script loaded. Waiting for targetFound on scene…');
+
+      sceneEl.addEventListener('targetFound', ({ detail }) => {
+        console.log('🎯 scene.targetFound fired, index=', detail.index);
+        if (pinned || detail.index !== 0) {
+          console.log('⚠️ Already pinned or wrong index, skipping.');
+          return;
+        }
         pinned = true;
 
-        // 1) Turn brown → green
+        // 1) Feedback: brown → green
+        console.log('1) Changing liveBox to green.');
         liveBox.setAttribute('material','color: green;');
 
-        // 2) Read A-Frame position attribute from liveBox
-        const posAttr = liveBox.getAttribute('position');
-        console.log('📐 liveBox attribute position:', posAttr);
+        // 2) Wait one RAF tick so A-Frame has updated world matrix
+        requestAnimationFrame(() => {
+          // 3) Read tracker world position (scene-local meters)
+          const worldPos = new THREE.Vector3();
+          trackerEl.object3D.getWorldPosition(worldPos);
+          console.log(`2) Tracker worldPos: x=${worldPos.x.toFixed(3)}, y=${worldPos.y.toFixed(3)}, z=${worldPos.z.toFixed(3)}`);
 
-        // 3) Create blue box at that same attribute position
-        const blueBox = document.createElement('a-box');
-        blueBox.setAttribute('depth','0.5');
-        blueBox.setAttribute('height','0.5');
-        blueBox.setAttribute('width','0.5');
-        blueBox.setAttribute('material','color: blue;');
-        // Use the exact same string values
-        blueBox.setAttribute('position', `${posAttr.x} ${posAttr.y} ${posAttr.z}`);
-        sceneEl.appendChild(blueBox);
-        console.log('✅ Blue box appended with attribute copy, in scene?', sceneEl.contains(blueBox));
+          // 4) Spawn blue box at that exact position
+          console.log('3) Creating blueBox at tracker worldPos.');
+          const blueBox = document.createElement('a-box');
+          blueBox.setAttribute('depth','0.5');
+          blueBox.setAttribute('height','0.5');
+          blueBox.setAttribute('width','0.5');
+          blueBox.setAttribute('material','color: blue;');
+          blueBox.setAttribute(
+            'position',
+            `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+          );
+          sceneEl.appendChild(blueBox);
+          console.log('✅ blueBox appended to scene:', blueBox);
+          console.log('🔍 In scene now?', sceneEl.contains(blueBox));
 
-        // 4) Remove tracker & pause MindAR
-        trackerEl.remove();
-        await sceneEl.components['mindar-image'].pause();
-        console.log('⏹️ Tracker removed & MindAR paused');
-        console.log('🔒 Blue box still in scene after cleanup?', sceneEl.contains(blueBox));
+          // 5) Cleanup after 2s
+          setTimeout(async () => {
+            console.log('4) Removing tracker and pausing MindAR…');
+            trackerEl.remove();
+            await sceneEl.components['mindar-image'].pause();
+            console.log('⏹️ Tracker removed & MindAR paused');
+            console.log('🔒 blueBox still in scene?', sceneEl.contains(blueBox));
+          }, 2000);
+        });
       });
     })();
   </script>
