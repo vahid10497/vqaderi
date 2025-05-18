@@ -2,132 +2,73 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>AR Persistent Anchor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Persistent AR Anchor</title>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
-        #ar-container { width: 100vw; height: 100vh; position: relative; }
+        #ar-container { width: 100vw; height: 100vh; }
         #status {
             position: absolute; 
             top: 10px; left: 10px;
             background: rgba(0,0,0,0.7); 
-            color: white;
-            padding: 10px;
-            font-family: Arial;
-            z-index: 100;
-        }
-        #error {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: red;
-            font-size: 1.2em;
-            text-align: center;
+            color: white; padding: 10px;
+            font-family: Arial; z-index: 100;
         }
     </style>
 </head>
 <body>
     <div id="ar-container">
-        <div id="status">Initializing...</div>
-        <div id="error"></div>
-        <canvas id="ar-canvas"></canvas>
+        <div id="status">Initializing AR...</div>
     </div>
 
     <script>
-        async function startAR() {
-            const statusEl = document.getElementById('status');
-            const errorEl = document.getElementById('error');
-            
-            try {
-                // 1. Verify camera access
-                statusEl.textContent = "Checking camera permissions...";
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment',
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-                stream.getTracks().forEach(track => track.stop());
+    async function startAR() {
+        const statusEl = document.getElementById('status');
+        
+        try {
+            // 1. Verify camera access
+            statusEl.textContent = "Requesting camera...";
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { exact: "environment" }, // Force rear camera
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                }
+            });
+            stream.getTracks().forEach(t => t.stop());
 
-                // 2. Initialize MindAR with camera params
-                statusEl.textContent = "Loading AR engine...";
-                const mindarThree = new MindARThree({
-                    container: document.querySelector("#ar-container"),
-                    imageTargetSrc: "./targets.mind",
-                    uiScanning: "yes",
-                    uiLoading: "yes",
-                    filterMinCF: 0.001,
-                    filterBeta: 0.1
-                });
+            // 2. Initialize MindAR
+            statusEl.textContent = "Loading AR engine...";
+            const mindarThree = new MindARThree({
+                container: document.getElementById("ar-container"),
+                imageTargetSrc: "./targets.mind?cache=" + Date.now(),
+                uiScanning: "yes",
+                uiLoading: "yes"
+            });
 
-                // 3. Set up Three.js scene
-                const { scene, camera, renderer } = mindarThree;
-                const light = new THREE.AmbientLight(0xffffff, 1);
-                scene.add(light);
+            // 3. Start AR
+            await mindarThree.start();
+            statusEl.textContent = "Scan target image!";
 
-                // 4. Start AR engine
-                statusEl.textContent = "Starting tracking...";
-                await mindarThree.start();
-                renderer.setAnimationLoop(() => {
-                    mindarThree.update();
-                    renderer.render(scene, camera);
-                });
-
-                // 5. Anchor setup
-                let worldAnchor = null;
-                mindarThree.onTargetFound = () => {
-                    statusEl.textContent = "Anchor captured!";
-                    const anchorGroup = mindarThree.getAnchorGroup(0);
-                    worldAnchor = {
-                        position: anchorGroup.position.clone(),
-                        quaternion: anchorGroup.quaternion.clone(),
-                        scale: anchorGroup.scale.clone()
-                    };
-
-                    // Add your 3D model here
-                    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-                    const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-                    const cube = new THREE.Mesh(geometry, material);
-                    cube.position.copy(worldAnchor.position);
-                    scene.add(cube);
-
-                    // Stop tracking after 2 seconds
-                    setTimeout(() => {
-                        mindarThree.stop();
-                        statusEl.textContent = "Persistent AR active!";
-                    }, 2000);
-                };
-
-            } catch (err) {
-                errorEl.innerHTML = `
-                    <strong>ERROR:</strong> ${err.name}<br>
-                    ${err.message}<br><br>
-                    ${getErrorSolution(err.name)}
-                `;
-                console.error("AR failure:", err);
-            }
-        }
-
-        function getErrorSolution(errorName) {
-            const solutions = {
-                'NotAllowedError': 'Allow camera access in browser settings',
-                'NotFoundError': 'Check if camera exists and is not in use',
-                'NotReadableError': 'Another app might be using the camera',
-                'OverconstrainedError': 'Try different camera constraints',
-                'AbortError': 'Hardware access failed - restart device'
+            // 4. Anchor logic
+            mindarThree.onTargetFound = () => {
+                statusEl.textContent = "Anchor locked!";
+                setTimeout(() => mindarThree.stop(), 1000);
             };
-            return solutions[errorName] || 'Check browser console for details';
-        }
 
-        // Start AR when safe
-        if (document.readyState === 'complete') {
-            startAR();
-        } else {
-            window.addEventListener('load', startAR);
+        } catch (err) {
+            statusEl.innerHTML = `
+                <strong style="color:red">Error:</strong> ${err.name}<br>
+                ${err.message}<br><br>
+                ${err.name === 'NotAllowedError' ? 
+                    'Allow camera access in browser settings' : 
+                    'Reload page and try again'}
+            `;
         }
+    }
+    startAR();
     </script>
 </body>
 </html>
