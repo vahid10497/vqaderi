@@ -1,39 +1,84 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>MindAR Minimal Test</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MindAR Pin & Forget</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- 1) A-Frame core -->
-    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- 2) MindAR core & A-Frame integration -->
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <!-- 1) A-Frame -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <!-- 2) MindAR.js core & A-Frame integration -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-    <style>
-      body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
-      a-scene { width: 100%; height: 100%; }
-    </style>
-  </head>
-  <body>
-    <a-scene
-      mindar-image="
-        imageTargetSrc: ./targets.mind;
-        autoStart: true;
-      "
-      device-orientation-permission-ui="enabled: true"
-      debugUIEnabled="true"
-      vr-mode-ui="enabled: false"
-    >
-      <!-- camera -->
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+  <style>
+    body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+    a-scene { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <a-scene
+    mindar-image="
+      imageTargetSrc: ./targets.mind;
+      autoStart: true;
+    "
+    device-orientation-permission-ui="enabled: true"
+    vr-mode-ui="enabled: false"
+    debugUIEnabled="true"
+  >
+    <!-- AR camera -->
+    <a-camera look-controls="enabled: false"></a-camera>
 
-      <!-- on-target content: a red box -->
-      <a-box mindar-image-target="targetIndex: 0"
-             position="0 0 0.5"
-             material="color: red;">
-      </a-box>
-    </a-scene>
-  </body>
+    <!-- Tracker entity with your box -->
+    <a-entity id="tracker" mindar-image-target="targetIndex: 0" visible="true">
+      <a-box
+        id="model"
+        position="0 0.5 0"
+        depth="0.5" height="0.5" width="0.5"
+        material="color: red;"
+      ></a-box>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    (function() {
+      const sceneEl   = document.querySelector('a-scene');
+      const trackerEl = document.getElementById('tracker');
+      const modelEl   = document.getElementById('model');
+      let pinned = false;
+
+      trackerEl.addEventListener('targetFound', async () => {
+        if (pinned) return;
+        pinned = true;
+
+        // 1) Capture the world transform of the tracker
+        const worldMatrix = trackerEl.object3D.matrixWorld.clone();
+
+        // 2) Create a new root-level entity and clone your model into it
+        const anchor = document.createElement('a-entity');
+        const clone  = modelEl.cloneNode(true);
+        anchor.appendChild(clone);
+
+        // 3) Apply the captured world matrix to your anchor
+        anchor.object3D.matrix.copy(worldMatrix);
+        anchor.object3D.matrix.decompose(
+          anchor.object3D.position,
+          anchor.object3D.quaternion,
+          anchor.object3D.scale
+        );
+
+        // 4) Add it to the scene root
+        sceneEl.appendChild(anchor);
+
+        // 5) Hide the original tracker so it never toggles visibility again
+        trackerEl.setAttribute('visible', 'false');
+
+        // 6) (Optional) Stop MindAR’s image-tracking to save CPU
+        await sceneEl.components['mindar-image'].stop();
+
+        console.log('✅ Model pinned and tracking stopped');
+      });
+    })();
+  </script>
+</body>
 </html>
