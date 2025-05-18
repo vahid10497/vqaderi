@@ -2,20 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget via Component</title>
+  <title>MindAR Pin & Forget (Attribute-Based)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR core & A-Frame integration -->
+  <!-- MindAR.js core & A-Frame integration -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
   <script>
-    // Register a 'pinforget' component that will run exactly once, on first detection
     AFRAME.registerComponent('pinforget', {
       init: function () {
-        const tracker = this.el;          // the <a-entity mindar-image-target>
-        const scene   = this.el.sceneEl;  // the <a-scene mindar-image>
+        const tracker = this.el;           // <a-entity mindar-image-target>
+        const scene   = this.el.sceneEl;   // <a-scene>
         let pinned = false;
 
         tracker.addEventListener('targetFound', async () => {
@@ -28,37 +27,49 @@
           tracker.object3D.getWorldPosition(worldPos);
           tracker.object3D.getWorldQuaternion(worldQuat);
 
-          // 2) Create a brand-new box (or swap to your model) at that pose
-          const anchor = document.createElement('a-box');
-          anchor.setAttribute('depth',  '0.5');
-          anchor.setAttribute('height', '0.5');
-          anchor.setAttribute('width',  '0.5');
-          anchor.setAttribute('material', 'color: blue;');  // pinned color
+          // Convert quaternion to Euler degrees
+          const euler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
+          const rotX = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
+          const rotY = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
+          const rotZ = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
 
-          // Immediately set its position + rotation so it's fixed in world-space
-          anchor.object3D.position.copy(worldPos);
-          anchor.object3D.quaternion.copy(worldQuat);
+          console.log('Pinning at', worldPos, 'rotation', rotX, rotY, rotZ);
 
-          // 3) Append it under <a-scene> (outside of the tracker)
-          scene.appendChild(anchor);
+          // 2) Create a new blue box with explicit position & rotation attrs
+          const box = document.createElement('a-box');
+          box.setAttribute('position',
+            `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+          );
+          box.setAttribute('rotation', `${rotX} ${rotY} ${rotZ}`);
+          box.setAttribute('depth', '0.5');
+          box.setAttribute('height', '0.5');
+          box.setAttribute('width', '0.5');
+          box.setAttribute('material', 'color: blue;');
 
-          // 4) Remove the entire tracker so MindAR can never hide it again
+          // 3) Append it to the scene root
+          scene.appendChild(box);
+          console.log('✅ Blue box appended to scene');
+
+          // 4) Remove the original tracker (and its yellow box)
           tracker.parentNode.removeChild(tracker);
+          console.log('🗑️ Tracker removed');
 
-          // 5) Pause MindAR’s image-tracking render loop
+          // 5) Pause MindAR so it never clears again
           await scene.components['mindar-image'].pause();
+          console.log('⏹️ MindAR paused');
         });
       }
     });
   </script>
 
   <style>
-    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
-    a-scene     { width:100%; height:100%; }
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
+    a-scene     { width:100%; height:100 }
   </style>
 </head>
 <body>
   <a-scene
+    id="scene"
     mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
     debugUIEnabled="true"
     vr-mode-ui="enabled: false"
@@ -66,7 +77,7 @@
   >
     <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- Tracker + initial yellow box, plus pinforget -->
+    <!-- Tracker with initial yellow box + pinforget -->
     <a-entity mindar-image-target="targetIndex: 0" pinforget>
       <a-box
         position="0 0.5 0"
