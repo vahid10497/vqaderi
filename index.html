@@ -1,71 +1,133 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>MindAR on GitHub</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindAR Anchor Demo</title>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
   <style>
-    body { margin: 0; overflow: hidden; }
-    #ar-container { width: 100vw; height: 100vh; }
+    body { 
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
     #status {
-      position: absolute; 
-      top: 10px; left: 10px; 
-      background: rgba(0,0,0,0.7); 
-      color: white; 
-      padding: 8px;
-      font-family: Arial;
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      z-index: 100;
+    }
+    #debug {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: #0f0;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
-  <div id="ar-container"></div>
-  <div id="status">Loading...</div>
+  <div id="container">
+    <div id="status">Initializing...</div>
+    <div id="debug"></div>
+  </div>
 
   <script>
-    document.addEventListener('DOMContentLoaded', async () => {
-      const statusEl = document.getElementById("status");
+    (async () => {
+      const statusEl = document.getElementById('status');
+      const debugEl = document.getElementById('debug');
       
+      // Debug logger
+      const log = (msg) => {
+        debugEl.textContent += `${new Date().toLocaleTimeString()}: ${msg}\n`;
+        console.log(msg);
+      };
+
       try {
-        // 1. Test camera access first
-        statusEl.textContent = "Checking camera...";
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        // Phase 1: Camera Test
+        statusEl.textContent = "Checking camera access...";
+        log("Testing camera permissions");
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        });
         stream.getTracks().forEach(track => track.stop());
+        log("Camera access granted");
+
+        // Phase 2: MindAR Init
+        statusEl.textContent = "Loading AR engine...";
+        log("Initializing MindAR");
         
-        // 2. Initialize MindAR
-        statusEl.textContent = "Initializing AR...";
         const mindarThree = new MindARThree({
-          container: document.getElementById("ar-container"),
-          imageTargetSrc: "targets.mind", // Same directory as HTML
+          container: document.getElementById('container'),
+          imageTargetSrc: './targets.mind', // Updated path
+          maxTrack: 1,
+          uiLoading: 'yes',
+          uiScanning: 'yes',
         });
 
         const { renderer, scene, camera } = mindarThree;
-
-        // 3. Add test cube
-        const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+        
+        // Phase 3: Simple 3D Object
+        const geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
         const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
         const cube = new THREE.Mesh(geometry, material);
         cube.visible = false;
         scene.add(cube);
 
-        // 4. Start AR
+        // Phase 4: Start AR
+        statusEl.textContent = "Starting AR...";
+        log("Beginning AR session");
         await mindarThree.start();
-        statusEl.textContent = "Scan the target!";
+        renderer.setAnimationLoop(() => {
+          mindarThree.update();
+          renderer.render(scene, camera);
+        });
+        statusEl.textContent = "Scan target image!";
+        log("AR session active");
 
-        // 5. Track found/lost
+        // Tracking Events
         mindarThree.onTargetFound = () => {
           cube.visible = true;
           statusEl.textContent = "Target found!";
+          log("Target detected");
         };
+
         mindarThree.onTargetLost = () => {
           cube.visible = false;
+          statusEl.textContent = "Target lost";
+          log("Target lost");
         };
 
       } catch (err) {
-        statusEl.textContent = `Error: ${err.message}`;
-        console.error("AR failed:", err);
+        statusEl.textContent = `ERROR: ${err.message}`;
+        log(`FATAL: ${err.stack}`);
+        console.error(err);
+        
+        // User-friendly error messages
+        if (err.name === 'NotAllowedError') {
+          statusEl.innerHTML += "<br>Please allow camera access and refresh";
+        } else if (err.message.includes('targets.mind')) {
+          statusEl.innerHTML += "<br>Missing targets.mind file in repo root";
+        }
       }
-    });
+    })();
   </script>
 </body>
 </html>
