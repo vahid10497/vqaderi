@@ -2,79 +2,102 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindARThree Pin & Forget (Fixed Imports)</title>
+  <title>v1049 – Anchor via anchorMatrix</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <style>body{margin:0;overflow:hidden}</style>
+  <!-- A-Frame core -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <!-- MindAR.js + A-Frame integration (NFT build, no geo) -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
+    a-scene     { width:100%; height:100 }
+    #debug {
+      position: absolute; top:0; left:0;
+      padding:0.5em; background:rgba(0,0,0,0.7);
+      color:#0f0; font-family:monospace; z-index:1;
+    }
+  </style>
 </head>
 <body>
-  <button id="start">Start AR</button>
-  <div id="debug" style="position:absolute;top:0;left:0;
-      padding:.5em;background:rgba(0,0,0,0.7);color:#0f0;
-      font-family:monospace;z-index:2">🔍 Waiting…</div>
+  <div id="debug">🔍 Waiting for image…</div>
 
-  <script type="module">
-    // ▶️ Correct three.js import:
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
+  <a-scene
+    id="scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; debugUIEnabled: true;"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true"
+  >
+    <a-camera look-controls="enabled: false"></a-camera>
 
-    const startButton = document.getElementById('start');
+    <!-- Tracker + live yellow box -->
+    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+      <a-box
+        id="liveBox"
+        position="0 0.5 0"
+        scale="0.3 0.3 0.3"
+        material="color: yellow;"
+      ></a-box>
+    </a-entity>
+
+    <!-- External box, initially hidden -->
+    <a-box
+      id="externalBox"
+      visible="false"
+      scale="0.5 0.5 0.5"
+      material="color: red;"
+    ></a-box>
+  </a-scene>
+
+  <script>
+  (function(){
+    const sceneEl     = document.getElementById('scene');
+    const trackerEl   = document.getElementById('tracker');
+    const externalBox = document.getElementById('externalBox');
     const debug       = document.getElementById('debug');
+    let pinned = false;
 
-    startButton.addEventListener('click', async () => {
-      startButton.style.display = 'none';
+    trackerEl.addEventListener('targetFound', async () => {
+      if (pinned) return;
+      pinned = true;
+      debug.innerText = '✅ Image found — computing anchor pose…';
 
-      // 1) Initialize MindARThree
-      const mindarThree = new MindARThree({
-        container: document.body,
-        imageTargetSrc: './targets.mind',
-        maxTrack: 1,
-        uiScanning: false,
-        uiLoading: false
-      });
-      const { renderer, scene, camera } = mindarThree;
+      // 1) Grab MindAR system & its anchor matrix
+      const mindarSys = sceneEl.systems['mindar-image'];
+      const anchor    = mindarSys.imageTracker.anchorList.get(0);
+      const matArr    = anchor.anchorMatrix;                 // Float32Array[16]
+      const mat       = new THREE.Matrix4().fromArray(matArr);
 
-      // 2) Light
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+      // 2) Decompose into position & quaternion
+      const pos  = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl  = new THREE.Vector3();
+      mat.decompose(pos, quat, scl);
 
-      // 3) Anchor for the image target
-      const anchor = mindarThree.addAnchor(0);
+      // 3) Convert quaternion → Euler for A-Frame
+      const euler = new THREE.Euler().setFromQuaternion(quat, 'XYZ');
+      const rx = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
+      const ry = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
+      const rz = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
 
-      // 4) Live yellow box
-      const geo = new THREE.BoxGeometry(0.2,0.2,0.2);
-      const mat = new THREE.MeshStandardMaterial({ color: 'yellow' });
-      const liveBox = new THREE.Mesh(geo, mat);
-      liveBox.position.set(0, 0.1, 0);
-      anchor.group.add(liveBox);
+      // 4) Position & orient the externalBox
+      externalBox.object3D.position.copy(pos);
+      externalBox.object3D.quaternion.copy(quat);
+      externalBox.setAttribute('position',
+        `${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`
+      );
+      externalBox.setAttribute('rotation', `${rx} ${ry} ${rz}`);
+      externalBox.setAttribute('visible','true');
 
-      // 5) On first detection, clone & pin a red box
-      let pinned = false;
-      anchor.onTargetFound = () => {
-        if (pinned) return;
-        pinned = true;
-        debug.innerText = '✅ Image found — pinning box';
+      debug.innerText = '🔒 External box pinned! Removing tracker in 3s…';
 
-        const redGeo = geo.clone();
-        const redMat = new THREE.MeshStandardMaterial({ color: 'red' });
-        const redBox = new THREE.Mesh(redGeo, redMat);
-
-        // apply the anchor.group world matrix to the red box
-        redBox.applyMatrix4(anchor.group.matrixWorld);
-        redBox.matrixAutoUpdate = false; // freeze it
-        scene.add(redBox);
-
-        // after 3s, remove the live box and stop tracking
-        setTimeout(async () => {
-          anchor.group.remove(liveBox);
-          await mindarThree.stop();
-          debug.innerText = '📌 Tracker stopped — red box remains.';
-        }, 3000);
-      };
-
-      // 6) Start camera+tracking
-      await mindarThree.start();
-      debug.innerText = '🎥 Camera live — point at target';
-      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+      // 5) After 3s, remove the tracker & pause MindAR
+      setTimeout(async () => {
+        trackerEl.remove();
+        await sceneEl.components['mindar-image'].pause();
+        debug.innerText = '📌 Done. External box remains.';
+      }, 3000);
     });
+  })();
   </script>
 </body>
 </html>
