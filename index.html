@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Pin & Forget (Tracker Listener)</title>
+  <title>MindAR Keep &amp; Detach Green Box</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR.js A-Frame integration only -->
+  <!-- MindAR.js A-Frame integration -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
     body,html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
@@ -35,14 +35,16 @@
   </a-scene>
 
   <script>
-  (function(){
+  (function() {
     const sceneEl   = document.getElementById('scene');
     const trackerEl = document.getElementById('tracker');
     const liveBox   = document.getElementById('liveBox');
     let pinned = false;
+    let logInterval;
 
     console.log('▶️ Waiting for tracker.targetFound…');
-    trackerEl.addEventListener('targetFound', () => {
+
+    trackerEl.addEventListener('targetFound', async () => {
       console.log('🎯 tracker.targetFound fired');
       if (pinned) {
         console.log('⚠️ Already pinned, skipping.');
@@ -50,35 +52,48 @@
       }
       pinned = true;
 
-      // 1) Feedback: yellow → green
-      console.log('1️⃣ liveBox: yellow → green');
+      // 1) Turn box yellow → green
+      console.log('1) liveBox: yellow → green');
       liveBox.setAttribute('material','color: green;');
 
-      // 2) Wait one RAF tick for AR update
-      requestAnimationFrame(() => {
-        // 3) Read tracker scene-local position
-        const pos = trackerEl.object3D.position.clone();
-        console.log(`2️⃣ trackerEl.position = x:${pos.x.toFixed(3)}, y:${pos.y.toFixed(3)}, z:${pos.z.toFixed(3)}`);
+      // 2) Wait one RAF tick to let AR update transforms
+      requestAnimationFrame(async () => {
+        // 3) Compute and bake its world‐space position + rotation
+        const worldPos  = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        liveBox.object3D.getWorldPosition(worldPos);
+        liveBox.object3D.getWorldQuaternion(worldQuat);
 
-        // 4) Create blue box at that exact pos
-        console.log('3️⃣ Creating blueBox at that position');
-        const blueBox = document.createElement('a-box');
-        blueBox.setAttribute('depth','0.5');
-        blueBox.setAttribute('height','0.5');
-        blueBox.setAttribute('width','0.5');
-        blueBox.setAttribute('material','color: blue;');
-        blueBox.setAttribute('position', `${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`);
-        sceneEl.appendChild(blueBox);
-        console.log('✅ blueBox appended:', sceneEl.contains(blueBox));
+        // 4) Reparent liveBox to scene root so it’s independent
+        sceneEl.appendChild(liveBox);
+        console.log(`2) liveBox reparented. Position: x=${worldPos.x.toFixed(3)}, y=${worldPos.y.toFixed(3)}, z=${worldPos.z.toFixed(3)}`);
 
-        // 5) After 3s, remove tracker & pause AR
-        setTimeout(async () => {
-          console.log('4️⃣ Removing tracker and pausing MindAR');
-          trackerEl.remove();
-          await sceneEl.components['mindar-image'].pause();
-          console.log('⏹️ Tracker removed & AR paused');
-          console.log('🔒 blueBox still in scene?', sceneEl.contains(blueBox));
-        }, 3000);
+        // Apply explicit attributes so it holds that pose
+        const euler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
+        liveBox.setAttribute('position', 
+          `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+        );
+        liveBox.setAttribute('rotation',
+          `${THREE.MathUtils.radToDeg(euler.x).toFixed(1)} ` +
+          `${THREE.MathUtils.radToDeg(euler.y).toFixed(1)} ` +
+          `${THREE.MathUtils.radToDeg(euler.z).toFixed(1)}`
+        );
+
+        // 5) Remove the tracker completely
+        trackerEl.remove();
+        console.log('3) Tracker removed.');
+
+        // 6) Pause MindAR so it stops clearing the scene
+        await sceneEl.components['mindar-image'].pause();
+        console.log('4) MindAR paused.');
+
+        // 7) Start logging the box’s position every 5 seconds
+        logInterval = setInterval(() => {
+          const checkPos = new THREE.Vector3();
+          liveBox.object3D.getWorldPosition(checkPos);
+          console.log(`🔄 liveBox still present. Position: x=${checkPos.x.toFixed(3)}, y=${checkPos.y.toFixed(3)}, z=${checkPos.z.toFixed(3)}`);
+          console.log('🔒 liveBox in scene?', sceneEl.contains(liveBox));
+        }, 5000);
       });
     });
   })();
