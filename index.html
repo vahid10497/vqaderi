@@ -2,84 +2,77 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>WebXR Auto-Place Sphere</title>
+  <title>WebXR Geospatial Anchor – 1st Floor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { margin:0; overflow:hidden; }
-    #xr-canvas { width:100%; height:100%; display:block; }
-    #message {
-      position: absolute; top: 0; width:100%; padding:1em;
-      background:rgba(0,0,0,0.6); color:white; font-family:sans-serif;
-      text-align:center; z-index:1;
-    }
-  </style>
+  <style>body{margin:0;overflow:hidden;}canvas{width:100%;height:100%;}</style>
 </head>
 <body>
-  <div id="message">Initializing AR…</div>
-  <canvas id="xr-canvas"></canvas>
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let camera, scene, renderer;
+    let scene, camera, renderer, sphere, anchor;
+    // Your first‐floor GPS:
+    const lat = 48.29002038491218,
+          lon = 14.282757518735202,
+          floorOffsetM = 3;  // ~3m up from ground
 
     init();
     async function init() {
-      // Check for WebXR AR support
-      if (navigator.xr === undefined ||
-          !(await navigator.xr.isSessionSupported('immersive-ar'))) {
-        document.getElementById('message').textContent =
-          'AR not supported on this device/browser.';
-        return;
-      }
-
-      // Three.js boilerplate
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('xr-canvas'),
-        alpha: true,
-        antialias: true
-      });
+      renderer = new THREE.WebGLRenderer({alpha:true});
+      renderer.setSize(innerWidth, innerHeight);
       renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
 
-      // ARButton to start session
-      document.body.appendChild(
-        ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
+      document.body.appendChild(ARButton.createButton(renderer, {
+        requiredFeatures: ['geospatial']
+      }));
+
+      // simple sphere
+      sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 32, 32),
+        new THREE.MeshStandardMaterial({ color: 0x00ccff })
       );
+      scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
+      scene.add(sphere);
 
-      // On session start, place the sphere
-      renderer.xr.addEventListener('sessionstart', placeSphere);
+      renderer.xr.addEventListener('sessionstart', async () => {
+        const session = renderer.xr.getSession();
+        const geoSpace = await session.requestReferenceSpace('geospatial');
+        // Place anchor at ground altitude + floorOffsetM
+        anchor = await geoSpace.createAnchor({
+          latitude: lat,
+          longitude: lon,
+          // If your device reports altitude, you could add that:
+          // altitude: userAlt + floorOffsetM
+          altitude: floorOffsetM
+        });
+      });
 
-      // Lighting
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
-
-      // Render loop
-      renderer.setAnimationLoop(() => {
+      renderer.setAnimationLoop((t, frame) => {
+        if (anchor && frame) {
+          const pose = frame.getPose(
+            anchor.anchorSpace,
+            renderer.xr.getReferenceSpace()
+          );
+          if (pose) {
+            sphere.position.set(
+              pose.transform.position.x,
+              pose.transform.position.y,
+              pose.transform.position.z
+            );
+            sphere.quaternion.set(
+              pose.transform.orientation.x,
+              pose.transform.orientation.y,
+              pose.transform.orientation.z,
+              pose.transform.orientation.w
+            );
+          }
+        }
         renderer.render(scene, camera);
       });
-    }
-
-    function placeSphere() {
-      document.getElementById('message').style.display = 'none';
-
-      // Create a sphere
-      const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3, 32, 32),
-        new THREE.MeshStandardMaterial({ color: 0xff6600 })
-      );
-
-      // Compute position 2m in front of camera
-      const cam = renderer.xr.getCamera(camera);
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-      const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
-
-      sphere.position.copy(pos);
-      sphere.quaternion.copy(cam.quaternion);
-
-      // Add to scene and leave it there
-      scene.add(sphere);
     }
   </script>
 </body>
