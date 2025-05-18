@@ -1,108 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>WebXR Tap-to-Place AR</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"/>
+  <title>WebXR Image-Tracking + Pin & Forget</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; }
-    #xr-canvas { width:100%; height:100%; display:block; }
     #message {
-      position: absolute; top: 10px; width:100%; text-align:center;
-      color: #fff; font-family:sans-serif; z-index:1;
+      position:absolute; top:0; width:100%; padding:1em;
+      background:rgba(0,0,0,0.6); color:white; text-align:center;
+      font-family:sans-serif; z-index:1;
     }
   </style>
 </head>
 <body>
-  <div id="message">Tap on a surface to place a sphere</div>
+  <div id="message">Initializing…</div>
   <canvas id="xr-canvas"></canvas>
 
   <script type="module">
-    import * as THREE           from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton }         from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let camera, scene, renderer;
-    let hitTestSource = null;
-    let hitTestSourceRequested = false;
-    const placedAnchors = [];
+    let renderer, scene, camera;
+    let xrRefSpace, xrHitTestSource, trackedImageSet, trackedObject;
+    let pinned = false;
 
     init();
-    function init() {
-      // scene & camera
+    async function init() {
+      // 1) Three.js setup
       scene    = new THREE.Scene();
       camera   = new THREE.PerspectiveCamera();
-
-      // lights
-      scene.add( new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1) );
-
-      // renderer w/ XR enabled
       renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
 
-      // ARButton with hit-test feature
+      // 2) Light + red box
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+      trackedObject = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2,0.2,0.2),
+        new THREE.MeshStandardMaterial({ color: 0xff0000 })
+      );
+      trackedObject.visible = false;
+      scene.add(trackedObject);
+
+      // 3) AR Button with image-tracking feature
       document.body.appendChild( ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test','local-floor']
+        requiredFeatures: ['image-tracking'],
+        trackedImages: await loadMarkerImage('./marker.png')
       }) );
 
-      // listen for session start to request hit test source
-      renderer.xr.addEventListener('sessionstart', () => {
-        hitTestSourceRequested = false;
-      });
-
-      // handle taps to place
-      window.addEventListener('click', onCanvasClick);
-
-      // render loop
+      renderer.xr.addEventListener('sessionstart', onSessionStart);
       renderer.setAnimationLoop(render);
     }
 
-    async function onCanvasClick(event) {
+    // Load the marker image into an XRTrackedImageInit
+    async function loadMarkerImage(url) {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return [{image: img, widthInMeters: 0.2}];
+    }
+
+    function onSessionStart() {
       const session = renderer.xr.getSession();
-      if (!hitTestSource) return;
-
-      const frame = renderer.xr.getFrame();
-      const referenceSpace = renderer.xr.getReferenceSpace();
-      const hitTestResults = frame.getHitTestResults(hitTestSource);
-
-      if (hitTestResults.length > 0) {
-        const hit = hitTestResults[0];
-        const pose = hit.getPose(referenceSpace);
-
-        // create a sphere at the hit position
-        const sphere = new THREE.Mesh(
-          new THREE.SphereGeometry(0.1, 32, 16),
-          new THREE.MeshStandardMaterial({ color: 0xff6600 })
-        );
-        sphere.position.set(
-          pose.transform.position.x,
-          pose.transform.position.y,
-          pose.transform.position.z
-        );
-        sphere.quaternion.set(
-          pose.transform.orientation.x,
-          pose.transform.orientation.y,
-          pose.transform.orientation.z,
-          pose.transform.orientation.w
-        );
-
-        // freeze its matrix so it stays put
-        sphere.matrixAutoUpdate = false;
-        sphere.matrix.compose(sphere.position, sphere.quaternion, new THREE.Vector3(1,1,1));
-        scene.add(sphere);
-        placedAnchors.push(sphere);
-      }
+      xrRefSpace = renderer.xr.getReferenceSpace();
+      // grab trackedImages set
+      trackedImageSet = session.trackedImages;
+      document.getElementById('message').innerText = 'Point at the marker image';
     }
 
     function render(timestamp, frame) {
       const session = renderer.xr.getSession();
-      if (session && !hitTestSourceRequested) {
-        session.requestReferenceSpace('viewer').then((refSpace) => {
-          session.requestHitTestSource({ space: refSpace }).then((source) => {
-            hitTestSource = source;
-          });
-        });
-        hitTestSourceRequested = true;
+      const trackedImages = frame.getImageTrackingResults();
+      if (trackedImages.length > 0) {
+        for (const result of trackedImages) {
+          const state = result.trackingState; // "tracked", "emulated", or "not-tracked"
+          if (state === 'tracked') {
+            // get pose of the image in world space
+            const pose = frame.getPose(result.imageSpace, xrRefSpace);
+            if (pose) {
+              // apply pose to our box
+              trackedObject.visible = true;
+              trackedObject.matrix.fromArray(pose.transform.matrix);
+              trackedObject.matrixAutoUpdate = false;
+              pinned = true; // we’ve seen it
+            }
+          }
+        }
+      } else if (pinned) {
+        // image lost after being tracked → leave the box in place
+        document.getElementById('message').innerText = '🔒 Object pinned';
       }
 
       renderer.render(scene, camera);
