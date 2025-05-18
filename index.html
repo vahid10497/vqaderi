@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Detach & Keep Green Box (Final)</title>
+  <title>MindAR Detach & Keep Green Box</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <!-- MindAR.js A-Frame integration -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <style>body,html{margin:0;padding:0;overflow:hidden;width:100%;height:100}a-scene{width:100%;height:100}</style>
+  <style>
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
+    a-scene     { width:100%; height:100 }
+  </style>
 </head>
 <body>
   <a-scene
@@ -39,16 +42,18 @@
     const liveBox   = document.getElementById('liveBox');
     let pinned = false;
 
-    trackerEl.addEventListener('targetFound', async () => {
+    console.log('▶️ Waiting for tracker.targetFound…');
+
+    trackerEl.addEventListener('targetFound', () => {
       if (pinned) return;
       pinned = true;
 
-      // 1) Turn yellow → green
+      // 1) Flip yellow → green
       liveBox.setAttribute('material','color: green;');
 
-      // 2) Wait one frame so AR transform updates complete
-      requestAnimationFrame(async () => {
-        // 3) Capture world-space position & rotation
+      // 2) Let MindAR finish its update
+      requestAnimationFrame(() => {
+        // 3) Capture world-space pose
         const worldPos  = new THREE.Vector3();
         const worldQuat = new THREE.Quaternion();
         liveBox.object3D.getWorldPosition(worldPos);
@@ -57,7 +62,7 @@
         // 4) Reparent under <a-scene>
         sceneEl.appendChild(liveBox);
 
-        // 5) Reapply captured pose as local attributes
+        // 5) Reapply exact pose as attributes
         const worldEuler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
         liveBox.setAttribute(
           'position',
@@ -70,13 +75,13 @@
           `${THREE.MathUtils.radToDeg(worldEuler.z).toFixed(1)}`
         );
 
-        // 6) Stop MindAR (prevents any further hide/clear)
-        await sceneEl.components['mindar-image'].stop();
+        // 6) Completely stop+destroy MindAR by removing the attribute
+        sceneEl.removeAttribute('mindar-image');
 
-        // 7) Remove the tracker entity
+        // 7) Remove the now-empty tracker entity
         trackerEl.remove();
 
-        console.log('✅ liveBox should remain green and visible now.');
+        console.log('✅ liveBox remains green and fixed in place.');
       });
     });
   })();
