@@ -2,39 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindARThree Pin & Forget (Working Camera)</title>
+  <title>MindARThree Pin & Forget (Fixed Imports)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <style>
-    body { margin:0; overflow:hidden; }
-    #start { 
-      position:absolute; top:50%; left:50%; 
-      transform:translate(-50%,-50%);
-      padding:1em 2em; font-size:1.2em;
-      background:#28a; color:white; border:none; border-radius:4px;
-      z-index:2;
-    }
-    #debug {
-      position:absolute; top:0; left:0; padding:0.5em;
-      background:rgba(0,0,0,0.7); color:#0f0; font-family:monospace;
-      z-index:2;
-    }
-  </style>
+  <style>body{margin:0;overflow:hidden}</style>
 </head>
 <body>
   <button id="start">Start AR</button>
-  <div id="debug">🔍 Waiting...</div>
+  <div id="debug" style="position:absolute;top:0;left:0;
+      padding:.5em;background:rgba(0,0,0,0.7);color:#0f0;
+      font-family:monospace;z-index:2">🔍 Waiting…</div>
 
   <script type="module">
+    // ▶️ Correct three.js import:
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
 
     const startButton = document.getElementById('start');
-    const debug = document.getElementById('debug');
+    const debug       = document.getElementById('debug');
 
     startButton.addEventListener('click', async () => {
       startButton.style.display = 'none';
 
-      // 1) Initialize MindARThree, pointing at your targets.mind
+      // 1) Initialize MindARThree
       const mindarThree = new MindARThree({
         container: document.body,
         imageTargetSrc: './targets.mind',
@@ -44,34 +33,36 @@
       });
       const { renderer, scene, camera } = mindarThree;
 
-      // 2) Add light
+      // 2) Light
       scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-      // 3) Create an anchor for targetIndex=0
+      // 3) Anchor for the image target
       const anchor = mindarThree.addAnchor(0);
 
-      // 4) Live yellow box under the anchor
-      const liveGeo = new THREE.BoxGeometry(0.2,0.2,0.2);
-      const liveMat = new THREE.MeshStandardMaterial({ color: 'yellow' });
-      const liveBox = new THREE.Mesh(liveGeo, liveMat);
-      liveBox.position.set(0,0.1,0);
+      // 4) Live yellow box
+      const geo = new THREE.BoxGeometry(0.2,0.2,0.2);
+      const mat = new THREE.MeshStandardMaterial({ color: 'yellow' });
+      const liveBox = new THREE.Mesh(geo, mat);
+      liveBox.position.set(0, 0.1, 0);
       anchor.group.add(liveBox);
 
-      // 5) On first detection, clone+pin a red box
+      // 5) On first detection, clone & pin a red box
       let pinned = false;
       anchor.onTargetFound = () => {
         if (pinned) return;
         pinned = true;
         debug.innerText = '✅ Image found — pinning box';
 
-        // Clone mesh
-        const redBox = new THREE.Mesh(liveGeo, new THREE.MeshStandardMaterial({ color:'red' }));
-        // Copy world matrix of anchor.group
+        const redGeo = geo.clone();
+        const redMat = new THREE.MeshStandardMaterial({ color: 'red' });
+        const redBox = new THREE.Mesh(redGeo, redMat);
+
+        // apply the anchor.group world matrix to the red box
         redBox.applyMatrix4(anchor.group.matrixWorld);
-        redBox.matrixAutoUpdate = false;  // freeze it
+        redBox.matrixAutoUpdate = false; // freeze it
         scene.add(redBox);
 
-        // After 3s, remove liveBox & stop tracking
+        // after 3s, remove the live box and stop tracking
         setTimeout(async () => {
           anchor.group.remove(liveBox);
           await mindarThree.stop();
@@ -79,7 +70,7 @@
         }, 3000);
       };
 
-      // 6) Start the AR camera+tracking loop
+      // 6) Start camera+tracking
       await mindarThree.start();
       debug.innerText = '🎥 Camera live — point at target';
       renderer.setAnimationLoop(() => renderer.render(scene, camera));
