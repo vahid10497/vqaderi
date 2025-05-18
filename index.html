@@ -1,39 +1,85 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>MindAR Minimal Test</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>MindAR Pin & Forget w/ Delay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <!-- MindAR.js -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
+    a-scene     { width:100%; height:100 }
+  </style>
+</head>
+<body>
+  <a-scene
+    id="scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
+    debugUIEnabled="true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true"
+  >
+    <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- 1) A-Frame core -->
-    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- 2) MindAR core & A-Frame integration -->
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <!-- Tracker + initial brown box -->
+    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+      <a-box
+        id="liveBox"
+        position="0 0.5 0"
+        depth="0.5" height="0.5" width="0.5"
+        material="color: brown;"
+      ></a-box>
+    </a-entity>
+  </a-scene>
 
-    <style>
-      body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
-      a-scene { width: 100%; height: 100%; }
-    </style>
-  </head>
-  <body>
-    <a-scene
-      mindar-image="
-        imageTargetSrc: ./YOUR_TARGETS_FILE.mind;
-        autoStart: true;
-      "
-      device-orientation-permission-ui="enabled: true"
-      debugUIEnabled="true"
-      vr-mode-ui="enabled: false"
-    >
-      <!-- camera -->
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+  <script>
+    (async () => {
+      const sceneEl   = document.getElementById('scene');
+      const trackerEl = document.getElementById('tracker');
+      const liveBox   = document.getElementById('liveBox');
+      let pinned = false;
 
-      <!-- on-target content: a red box -->
-      <a-box mindar-image-target="targetIndex: 0"
-             position="0 0 0.5"
-             material="color: red;">
-      </a-box>
-    </a-scene>
-  </body>
+      trackerEl.addEventListener('targetFound', () => {
+        if (pinned) return;
+        pinned = true;
+
+        // 1) Immediate feedback: turn brown→green
+        liveBox.setAttribute('material','color: green;');
+
+        // 2) Capture world pose
+        const worldPos  = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        liveBox.object3D.getWorldPosition(worldPos);
+        liveBox.object3D.getWorldQuaternion(worldQuat);
+        const euler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
+        const rx = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
+        const ry = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
+        const rz = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
+
+        // 3) Spawn permanent red box
+        const redBox = document.createElement('a-box');
+        redBox.setAttribute('depth','0.5');
+        redBox.setAttribute('height','0.5');
+        redBox.setAttribute('width','0.5');
+        redBox.setAttribute('material','color: red;');
+        redBox.setAttribute('position',
+          `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+        );
+        redBox.setAttribute('rotation', `${rx} ${ry} ${rz}`);
+        sceneEl.appendChild(redBox);
+
+        // 4) Delay removal & pause by 3 seconds
+        setTimeout(async () => {
+          // remove tracker so it can't hide our red box
+          if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
+          // pause MindAR tracking loop
+          await sceneEl.components['mindar-image'].pause();
+        }, 3000);
+      });
+    })();
+  </script>
+</body>
 </html>
