@@ -2,146 +2,159 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>WebXR GPS Anchor with Fallback</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebXR Hit-Test + GPS Anchor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { margin:0; overflow:hidden; font-family:sans-serif; }
+    body { margin:0; overflow:hidden; font-family: sans-serif; }
+    canvas { width:100%; height:100%; display:block; }
     #message {
-      position:absolute; top:0; left:0; width:100%; padding:1em;
-      color:#fff; background:rgba(0,0,0,0.7); text-align:center;
-      z-index:10;
+      position: absolute; top: 0; left: 0; width: 100%;
+      background: rgba(0,0,0,0.6); color: white; padding: 1em;
+      text-align: center; z-index: 10;
     }
-    canvas { width:100%; height:100% }
   </style>
 </head>
 <body>
-  <div id="message">Checking AR support…</div>
+  <div id="message">Initializing AR hit-test…</div>
   <canvas id="xr-canvas"></canvas>
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let scene, camera, renderer, sphere, reticle, hitSource, controller;
-    const lat = 48.29002038491218, lon = 14.282757518735202, floorM = 3;
+    let scene, camera, renderer;
+    let reticle, controller, sphere;
+    let hitSource;
+    // Your first-floor GPS coords:
+    const targetLat = 48.29002038491218;
+    const targetLon = 14.282757518735202;
+    const floorOffsetM = 3;  // ~3 m above device GPS altitude
+
+    // We'll store user GPS when first needed
+    let userLat=0, userLon=0, userAlt=0;
+
+    init();
 
     async function init() {
-      const msg = document.getElementById('message');
       if (!navigator.xr) {
-        msg.textContent = 'WebXR not supported';
+        showMessage('WebXR unavailable');
+        return;
+      }
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        showMessage('AR not supported on this device/browser');
         return;
       }
 
-      const supportGeo = await navigator.xr.isSessionSupported('immersive-ar');
-      // test geospatial support
-      let useGeo = false;
-      if (supportGeo) {
-        try {
-          useGeo = await navigator.xr.isSessionSupported('immersive-ar', { requiredFeatures:['geospatial'] });
-        } catch(e){}
-      }
+      // Grab user GPS once
+      navigator.geolocation.getCurrentPosition(p => {
+        userLat = p.coords.latitude;
+        userLon = p.coords.longitude;
+        if (p.coords.altitude !== null) userAlt = p.coords.altitude;
+      }, () => {
+        showMessage('Could not get GPS—check location permissions');
+      });
 
-      // three.js / renderer
+      // THREE setup
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({canvas:document.getElementById('xr-canvas'), alpha:true});
-      renderer.xr.enabled = true;
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('xr-canvas'),
+        alpha: true,
+        antialias: true
+      });
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
 
-      // add a light
+      // Light
       scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
 
-      // create the sphere
+      // Sphere (hidden until placement)
       sphere = new THREE.Mesh(
         new THREE.SphereGeometry(0.3,32,32),
-        new THREE.MeshStandardMaterial({color:0xff6600})
+        new THREE.MeshStandardMaterial({ color: 0x00ccff })
       );
-      scene.add(sphere);
       sphere.visible = false;
+      scene.add(sphere);
 
-      let sessionInit;
-      if (useGeo) {
-        msg.textContent = 'AR + Geospatial supported → Tap "Enter AR"';
-        sessionInit = { requiredFeatures: ['geospatial'] };
-      } else {
-        msg.textContent = 'Geospatial unsupported → falling back to hit-test';
-        sessionInit = { requiredFeatures: ['hit-test','local-floor'] };
-        setupReticleAndController();
-      }
-
-      document.body.appendChild(ARButton.createButton(renderer, sessionInit));
-
-      renderer.xr.addEventListener('sessionstart', async () => {
-        msg.style.display = 'none';
-
-        if (useGeo) {
-          // geospatial path
-          const session = renderer.xr.getSession();
-          const geoRef = await session.requestReferenceSpace('geospatial');
-          const anchor = await geoRef.createAnchor({ latitude: lat, longitude: lon, altitude: floorM });
-          renderer.setAnimationLoop((t, frame) => {
-            const pose = frame.getPose(anchor.anchorSpace, renderer.xr.getReferenceSpace());
-            if (pose) {
-              sphere.visible = true;
-              sphere.position.set(...Object.values(pose.transform.position));
-              sphere.quaternion.set(...Object.values(pose.transform.orientation));
-            }
-            renderer.render(scene, camera);
-          });
-        } else {
-          // hit-test fallback path
-          const session = renderer.xr.getSession();
-          const viewer = await session.requestReferenceSpace('viewer');
-          hitSource = await session.requestHitTestSource({space: viewer});
-          renderer.setAnimationLoop((t, frame) => {
-            const refSpace = renderer.xr.getReferenceSpace();
-            const hits = frame.getHitTestResults(hitSource);
-            if (hits.length) {
-              const pose = hits[0].getPose(refSpace);
-              reticle.visible = true;
-              reticle.matrix.fromArray(pose.transform.matrix);
-            } else {
-              reticle.visible = false;
-            }
-            renderer.render(scene, camera);
-          });
-        }
-      });
-    }
-
-    function setupReticleAndController() {
-      // reticle to show placement
+      // Reticle for hit-test feedback
       reticle = new THREE.Mesh(
         new THREE.RingGeometry(0.15,0.2,32).rotateX(-Math.PI/2),
-        new THREE.MeshBasicMaterial({color:0x00ff00})
+        new THREE.MeshBasicMaterial({ color: 0x00ff00 })
       );
       reticle.matrixAutoUpdate = false;
       reticle.visible = false;
       scene.add(reticle);
 
+      // Controller (tap to place)
       controller = renderer.xr.getController(0);
-      controller.addEventListener('select', () => {
-        if (!reticle.visible) return;
-        // ENU offset
-        navigator.geolocation.getCurrentPosition(p => {
-          const toRad = d=>d*Math.PI/180;
-          const latRad = toRad(p.coords.latitude);
-          const dx = (lon - p.coords.longitude)*(111412.84*Math.cos(latRad));
-          const dz = (lat - p.coords.latitude)*111132.92;
-          const dy = floorM - (p.coords.altitude||0);
-          const mat = new THREE.Matrix4().fromArray(reticle.matrix.elements);
-          const pos = new THREE.Vector3().setFromMatrixPosition(mat);
-          const quat = new THREE.Quaternion().setFromRotationMatrix(mat);
-          pos.x += dx; pos.z -= dz; pos.y += dy;
-          sphere.position.copy(pos);
-          sphere.quaternion.copy(quat);
-          sphere.visible = true;
-        });
-      });
+      controller.addEventListener('select', onSelect);
       scene.add(controller);
+
+      // ARButton with hit-test
+      document.body.appendChild(
+        ARButton.createButton(renderer, { requiredFeatures: ['hit-test','local-floor'] })
+      );
+
+      // Once session starts, set up hit-test source and hide message
+      renderer.xr.addEventListener('sessionstart', async () => {
+        showMessage('');
+        const session = renderer.xr.getSession();
+        const viewerSpace = await session.requestReferenceSpace('viewer');
+        hitSource = await session.requestHitTestSource({ space: viewerSpace });
+
+        renderer.setAnimationLoop(onXRFrame);
+      });
     }
 
-    init();
+    function showMessage(msg) {
+      document.getElementById('message').textContent = msg;
+    }
+
+    function onXRFrame(time, frame) {
+      const session = renderer.xr.getSession();
+      const refSpace = renderer.xr.getReferenceSpace();
+
+      // Hit-test to update reticle
+      const hits = frame.getHitTestResults(hitSource);
+      if (hits.length) {
+        const pose = hits[0].getPose(refSpace);
+        reticle.visible = true;
+        reticle.matrix.fromArray(pose.transform.matrix);
+      } else {
+        reticle.visible = false;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function onSelect() {
+      if (!reticle.visible) return;
+
+      // Compute ENU offset from user→target
+      const toRad = deg => deg * Math.PI / 180;
+      const latRad = toRad(userLat);
+      const mLat = 111132.92;
+      const mLon = 111412.84 * Math.cos(latRad);
+      const dx = (targetLon - userLon) * mLon;  // east
+      const dz = (targetLat - userLat) * mLat;  // north
+      const dy = floorOffsetM - userAlt;        // up
+
+      // Extract the reticle’s world pose
+      const mat = new THREE.Matrix4().fromArray(reticle.matrix.elements);
+      const pos = new THREE.Vector3().setFromMatrixPosition(mat);
+      const quat = new THREE.Quaternion().setFromRotationMatrix(mat);
+
+      // Apply ENU: +X east, -Z north in Three.js
+      pos.x += dx;
+      pos.z -= dz;
+      pos.y += dy;
+
+      // Place and show the sphere
+      sphere.position.copy(pos);
+      sphere.quaternion.copy(quat);
+      sphere.visible = true;
+    }
   </script>
 </body>
 </html>
