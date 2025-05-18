@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>WebXR GPS-Anchored Sphere</title>
+  <title>WebXR Auto-Place Sphere</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { margin:0; overflow:hidden; }
@@ -23,19 +23,17 @@
 
     let camera, scene, renderer;
 
-    // your building’s GPS
-    const buildLat = 48.29002038491218;
-    const buildLon = 14.282757518735202;
-    const floorOffsetM = 3; // meters above user altitude
-
     init();
     async function init() {
-      if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) {
+      // Check for WebXR AR support
+      if (navigator.xr === undefined ||
+          !(await navigator.xr.isSessionSupported('immersive-ar'))) {
         document.getElementById('message').textContent =
           'AR not supported on this device/browser.';
         return;
       }
 
+      // Three.js boilerplate
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera();
       renderer = new THREE.WebGLRenderer({
@@ -46,14 +44,18 @@
       renderer.xr.enabled = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
 
+      // ARButton to start session
       document.body.appendChild(
         ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
       );
 
+      // On session start, place the sphere
       renderer.xr.addEventListener('sessionstart', placeSphere);
 
+      // Lighting
       scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
+      // Render loop
       renderer.setAnimationLoop(() => {
         renderer.render(scene, camera);
       });
@@ -62,41 +64,22 @@
     function placeSphere() {
       document.getElementById('message').style.display = 'none';
 
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const userLat = pos.coords.latitude;
-        const userLon = pos.coords.longitude;
-        const userAlt = pos.coords.altitude || 0;
+      // Create a sphere
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 32, 32),
+        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+      );
 
-        // compute meters-per-degree
-        const toRad = d => d * Math.PI / 180;
-        const latRad = toRad(userLat);
-        const mPerLat = 111132.92;
-        const mPerLon = 111412.84 * Math.cos(latRad);
+      // Compute position 2m in front of camera
+      const cam = renderer.xr.getCamera(camera);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+      const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
 
-        // ENU offset
-        const dx = (buildLon - userLon) * mPerLon;  // east
-        const dz = (buildLat - userLat) * mPerLat;  // north
-        const dy = floorOffsetM - userAlt;          // up
+      sphere.position.copy(pos);
+      sphere.quaternion.copy(cam.quaternion);
 
-        // create sphere
-        const sphere = new THREE.Mesh(
-          new THREE.SphereGeometry(0.3, 32, 32),
-          new THREE.MeshStandardMaterial({ color: 0xff6600 })
-        );
-
-        // place at (dx, dy, -dz) in world-space
-        sphere.position.set(dx, dy, -dz);
-
-        // orient same as camera (optional)
-        const cam = renderer.xr.getCamera(camera);
-        sphere.quaternion.copy(cam.quaternion);
-
-        scene.add(sphere);
-      }, (err) => {
-        console.error('GPS error', err);
-        document.getElementById('message').textContent =
-          'Could not get GPS position.';
-      });
+      // Add to scene and leave it there
+      scene.add(sphere);
     }
   </script>
 </body>
