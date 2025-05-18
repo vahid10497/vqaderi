@@ -1,74 +1,45 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Persistent AR Anchor</title>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+  <head>
+    <meta charset="utf-8" />
+    <title>AR.js GPS Anchor Example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- A-Frame core -->
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- AR.js A-Frame + GPS support -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
     <style>
-        body { margin: 0; overflow: hidden; }
-        #ar-container { width: 100vw; height: 100vh; }
-        #status {
-            position: absolute; 
-            top: 10px; left: 10px;
-            background: rgba(0,0,0,0.7); 
-            color: white; padding: 10px;
-            font-family: Arial; z-index: 100;
-        }
+      body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+      a-scene     { width: 100%; height: 100%; }
     </style>
-</head>
-<body>
-    <div id="ar-container">
-        <div id="status">Initializing AR...</div>
-    </div>
+  </head>
 
-    <script>
-    async function startAR() {
-        const statusEl = document.getElementById('status');
-        
-        try {
-            // 1. Verify camera access
-            statusEl.textContent = "Requesting camera...";
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: { exact: "environment" }, // Force rear camera
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 }
-                }
-            });
-            stream.getTracks().forEach(t => t.stop());
+  <body>
+    <a-scene
+      embedded
+      vr-mode-ui="enabled: false"
+      arjs="sourceType: webcam; gpsMinDistance: 5; debugUIEnabled: false;"
+    >
+      <!-- 
+        Simulate your camera at your first-floor window coordinates 
+        (replace simulateLatitude/Longitude with your real location or remove them for live GPS)
+      -->
+      <a-camera
+        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488"
+        rotation-reader
+      ></a-camera>
 
-            // 2. Initialize MindAR
-            statusEl.textContent = "Loading AR engine...";
-            const mindarThree = new MindARThree({
-                container: document.getElementById("ar-container"),
-                imageTargetSrc: "./targets.mind?cache=" + Date.now(),
-                uiScanning: "yes",
-                uiLoading: "yes"
-            });
-
-            // 3. Start AR
-            await mindarThree.start();
-            statusEl.textContent = "Scan target image!";
-
-            // 4. Anchor logic
-            mindarThree.onTargetFound = () => {
-                statusEl.textContent = "Anchor locked!";
-                setTimeout(() => mindarThree.stop(), 1000);
-            };
-
-        } catch (err) {
-            statusEl.innerHTML = `
-                <strong style="color:red">Error:</strong> ${err.name}<br>
-                ${err.message}<br><br>
-                ${err.name === 'NotAllowedError' ? 
-                    'Allow camera access in browser settings' : 
-                    'Reload page and try again'}
-            `;
-        }
-    }
-    startAR();
-    </script>
-</body>
+      <!-- 
+        Place a big red sphere at the rooftop coordinates 
+        (48.28961166630169, 14.282566825905297) 
+      -->
+      <a-sphere
+        color="red"
+        radius="2"
+        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
+      ></a-sphere>
+    </a-scene>
+  </body>
 </html>
