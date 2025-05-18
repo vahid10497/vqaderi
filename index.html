@@ -1,92 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>MindARThree Pin & Forget (Final)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="UTF-8">
+  <title>WebXR Tap-to-Place AR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { margin:0; overflow:hidden; }
-    #start {
-      position:absolute; top:50%; left:50%;
-      transform:translate(-50%,-50%);
-      padding:1em 2em; font-size:1.2em;
-      background:#28a; color:#fff; border:none; border-radius:4px;
-      z-index:2;
-    }
-    #debug {
-      position:absolute; top:0; left:0; padding:0.5em;
-      background:rgba(0,0,0,0.7); color:#0f0; font-family:monospace;
-      z-index:2;
+    #xr-canvas { width:100%; height:100%; display:block; }
+    #message {
+      position: absolute; top: 10px; width:100%; text-align:center;
+      color: #fff; font-family:sans-serif; z-index:1;
     }
   </style>
 </head>
 <body>
-  <button id="start">Start AR</button>
-  <div id="debug">🔍 Waiting to start…</div>
+  <div id="message">Tap on a surface to place a sphere</div>
+  <canvas id="xr-canvas"></canvas>
 
   <script type="module">
-    import * as THREE      from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
+    import * as THREE           from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton }         from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    const startButton = document.getElementById('start');
-    const debug       = document.getElementById('debug');
+    let camera, scene, renderer;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+    const placedAnchors = [];
 
-    startButton.addEventListener('click', async () => {
-      startButton.style.display = 'none';
-      debug.innerText = '🚀 Initializing AR…';
+    init();
+    function init() {
+      // scene & camera
+      scene    = new THREE.Scene();
+      camera   = new THREE.PerspectiveCamera();
 
-      // 1) Initialize MindARThree
-      const mindarThree = new MindARThree({
-        container: document.body,
-        imageTargetSrc: './targets.mind',
-        maxTrack: 1,
-        uiLoading: false,
-        uiScanning: false
+      // lights
+      scene.add( new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1) );
+
+      // renderer w/ XR enabled
+      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+
+      // ARButton with hit-test feature
+      document.body.appendChild( ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test','local-floor']
+      }) );
+
+      // listen for session start to request hit test source
+      renderer.xr.addEventListener('sessionstart', () => {
+        hitTestSourceRequested = false;
       });
-      const { renderer, scene, camera } = mindarThree;
 
-      // 2) Add ambient light
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+      // handle taps to place
+      window.addEventListener('click', onCanvasClick);
 
-      // 3) Create an anchor group for your image (index 0)
-      const anchor = mindarThree.addAnchor(0);
+      // render loop
+      renderer.setAnimationLoop(render);
+    }
 
-      // 4) Add a live yellow box inside the anchor
-      const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-      const matLive = new THREE.MeshStandardMaterial({ color: 'yellow' });
-      const liveBox = new THREE.Mesh(geo, matLive);
-      liveBox.position.set(0, 0.1, 0);
-      anchor.group.add(liveBox);
+    async function onCanvasClick(event) {
+      const session = renderer.xr.getSession();
+      if (!hitTestSource) return;
 
-      // 5) When the image is first found, clone & pin a red box
-      let pinned = false;
-      anchor.onTargetFound = () => {
-        if (pinned) return;
-        pinned = true;
-        debug.innerText = '✅ Image found — pinning red box…';
+      const frame = renderer.xr.getFrame();
+      const referenceSpace = renderer.xr.getReferenceSpace();
+      const hitTestResults = frame.getHitTestResults(hitTestSource);
 
-        // Clone geometry & make a red material
-        const matRed = new THREE.MeshStandardMaterial({ color: 'red' });
-        const redBox = new THREE.Mesh(geo, matRed);
+      if (hitTestResults.length > 0) {
+        const hit = hitTestResults[0];
+        const pose = hit.getPose(referenceSpace);
 
-        // Copy the world-matrix of the anchor group into our red box
-        redBox.applyMatrix4(anchor.group.matrixWorld);
-        redBox.matrixAutoUpdate = false;   // freeze transform
-        scene.add(redBox);
+        // create a sphere at the hit position
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 32, 16),
+          new THREE.MeshStandardMaterial({ color: 0xff6600 })
+        );
+        sphere.position.set(
+          pose.transform.position.x,
+          pose.transform.position.y,
+          pose.transform.position.z
+        );
+        sphere.quaternion.set(
+          pose.transform.orientation.x,
+          pose.transform.orientation.y,
+          pose.transform.orientation.z,
+          pose.transform.orientation.w
+        );
 
-        // After 3s, remove live box & stop the tracker
-        setTimeout(async () => {
-          anchor.group.remove(liveBox);
-          await mindarThree.stop();
-          debug.innerText = '📌 Tracker stopped — red box remains.';
-        }, 3000);
-      };
+        // freeze its matrix so it stays put
+        sphere.matrixAutoUpdate = false;
+        sphere.matrix.compose(sphere.position, sphere.quaternion, new THREE.Vector3(1,1,1));
+        scene.add(sphere);
+        placedAnchors.push(sphere);
+      }
+    }
 
-      // 6) Start AR and camera loop
-      await mindarThree.start();
-      debug.innerText = '🎥 Camera live — point at your image';
-      renderer.setAnimationLoop(() => renderer.render(scene, camera));
-    });
+    function render(timestamp, frame) {
+      const session = renderer.xr.getSession();
+      if (session && !hitTestSourceRequested) {
+        session.requestReferenceSpace('viewer').then((refSpace) => {
+          session.requestHitTestSource({ space: refSpace }).then((source) => {
+            hitTestSource = source;
+          });
+        });
+        hitTestSourceRequested = true;
+      }
+
+      renderer.render(scene, camera);
+    }
   </script>
 </body>
 </html>
