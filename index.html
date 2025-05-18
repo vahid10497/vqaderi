@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Detach & Keep Green Box</title>
+  <title>MindAR Detach & Keep Green Box (Fix)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -42,8 +42,6 @@
     const liveBox   = document.getElementById('liveBox');
     let pinned = false;
 
-    console.log('▶️ Waiting for tracker.targetFound…');
-
     trackerEl.addEventListener('targetFound', () => {
       if (pinned) return;
       pinned = true;
@@ -51,18 +49,18 @@
       // 1) Flip yellow → green
       liveBox.setAttribute('material','color: green;');
 
-      // 2) Let MindAR finish its update
+      // 2) Wait one frame for the AR update
       requestAnimationFrame(() => {
-        // 3) Capture world-space pose
+        // 3) Capture world‐space pose
         const worldPos  = new THREE.Vector3();
         const worldQuat = new THREE.Quaternion();
         liveBox.object3D.getWorldPosition(worldPos);
         liveBox.object3D.getWorldQuaternion(worldQuat);
 
-        // 4) Reparent under <a-scene>
+        // 4) Reparent to scene root
         sceneEl.appendChild(liveBox);
 
-        // 5) Reapply exact pose as attributes
+        // 5) Reapply exact pose as local attributes
         const worldEuler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
         liveBox.setAttribute(
           'position',
@@ -75,13 +73,10 @@
           `${THREE.MathUtils.radToDeg(worldEuler.z).toFixed(1)}`
         );
 
-        // 6) Completely stop+destroy MindAR by removing the attribute
-        sceneEl.removeAttribute('mindar-image');
-
-        // 7) Remove the now-empty tracker entity
+        // 6) Remove only the tracker entity
         trackerEl.remove();
 
-        console.log('✅ liveBox remains green and fixed in place.');
+        console.log('✅ liveBox remains green and AR feed continues.');
       });
     });
   })();
