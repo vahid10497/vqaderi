@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Pin & Forget w/ Delay</title>
+  <title>MindAR Pin & Forget (Blue Offset)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -24,7 +24,7 @@
   >
     <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- Tracker + initial brown box -->
+    <!-- Tracker + brown live box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
@@ -46,36 +46,43 @@
         if (pinned) return;
         pinned = true;
 
-        // 1) Immediate feedback: turn brown→green
+        // 1) Turn live box green
         liveBox.setAttribute('material','color: green;');
 
-        // 2) Capture world pose
-        const worldPos  = new THREE.Vector3();
-        const worldQuat = new THREE.Quaternion();
-        liveBox.object3D.getWorldPosition(worldPos);
-        liveBox.object3D.getWorldQuaternion(worldQuat);
-        const euler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
-        const rx = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
-        const ry = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
-        const rz = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
+        // 2) Grab world-space pose of the live box
+        const pos = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        liveBox.object3D.getWorldPosition(pos);
+        liveBox.object3D.getWorldQuaternion(quat);
 
-        // 3) Spawn permanent red box
-        const redBox = document.createElement('a-box');
-        redBox.setAttribute('depth','0.5');
-        redBox.setAttribute('height','0.5');
-        redBox.setAttribute('width','0.5');
-        redBox.setAttribute('material','color: red;');
-        redBox.setAttribute('position',
-          `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+        // 3) Create blue box with an X-offset +0.5m
+        const blueBox = document.createElement('a-box');
+        blueBox.setAttribute('depth', '0.5');
+        blueBox.setAttribute('height','0.5');
+        blueBox.setAttribute('width', '0.5');
+        blueBox.setAttribute('material','color: blue;');
+        // Apply offset on X axis of world quaternion
+        const offset = new THREE.Vector3(0.5, 0, 0).applyQuaternion(quat);
+        const bx = pos.x + offset.x;
+        const by = pos.y + offset.y;
+        const bz = pos.z + offset.z;
+        blueBox.setAttribute('position',
+          `${bx.toFixed(3)} ${by.toFixed(3)} ${bz.toFixed(3)}`
         );
-        redBox.setAttribute('rotation', `${rx} ${ry} ${rz}`);
-        sceneEl.appendChild(redBox);
+        // derive Euler for rotation
+        const euler = new THREE.Euler().setFromQuaternion(quat, 'XYZ');
+        blueBox.setAttribute('rotation',
+          `${THREE.MathUtils.radToDeg(euler.x).toFixed(1)} ` +
+          `${THREE.MathUtils.radToDeg(euler.y).toFixed(1)} ` +
+          `${THREE.MathUtils.radToDeg(euler.z).toFixed(1)}`
+        );
 
-        // 4) Delay removal & pause by 3 seconds
+        // 4) Append the blue box immediately
+        sceneEl.appendChild(blueBox);
+
+        // 5) After 3s, remove tracker + pause MindAR
         setTimeout(async () => {
-          // remove tracker so it can't hide our red box
           if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
-          // pause MindAR tracking loop
           await sceneEl.components['mindar-image'].pause();
         }, 3000);
       });
