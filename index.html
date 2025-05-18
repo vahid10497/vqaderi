@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Anchor Hack (Fixed)</title>
+  <title>MindAR AnchorHack (Fixed Start)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -19,10 +19,8 @@
   </style>
 </head>
 <body>
-  <!-- 1) Manual Start Button -->
   <button id="startButton">Start AR</button>
 
-  <!-- 2) MindAR Scene (autoStart:false) -->
   <a-scene
     id="scene"
     mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; debugUIEnabled: true;"
@@ -41,38 +39,43 @@
     const sceneEl     = document.getElementById('scene');
     const trackerEl   = document.getElementById('tracker');
 
-    // 1) User tap → start the AR system
+    // expose available systems for debugging
+    console.log('🛠 Available A-Frame systems:', Object.keys(sceneEl.systems));
+
     startButton.addEventListener('click', async () => {
+      // pick the correct MindAR system key
+      const mindarSys = sceneEl.systems['mindar-image'] || sceneEl.systems.mindarImage;
+      if (!mindarSys) {
+        alert('MindAR system not found! Check console for system keys.');
+        console.error('No mindar-image or mindarImage in sceneEl.systems');
+        return;
+      }
+
       try {
-        await sceneEl.systems['mindar-image'].start();  // <-- use .systems not .components
+        await mindarSys.start();   // correct method on the system
         startButton.style.display = 'none';
         sceneEl.style.display     = 'block';
+        console.log('✅ MindAR started');
       } catch (err) {
         alert('Camera start failed: ' + err.message);
+        console.error(err);
       }
     });
 
-    // 2) When image is found, hack the anchor matrix
     sceneEl.addEventListener('targetFound', () => {
-      // Grab the MindAR system
-      const mindar = sceneEl.systems['mindar-image'];
-      const anchor = mindar.imageTracker.anchorList.get(0);
+      // hack the internal anchor matrix
+      const mindarSys = sceneEl.systems['mindar-image'] || sceneEl.systems.mindarImage;
+      const anchor    = mindarSys.imageTracker.anchorList.get(0);
       if (!anchor) return;
 
-      // 3) Get raw 4×4 anchor matrix
       const matArr = anchor.anchorMatrix;
       const mat    = new THREE.Matrix4().fromArray(matArr);
+      const pos    = new THREE.Vector3();
+      const quat   = new THREE.Quaternion();
+      mat.decompose(pos, quat, new THREE.Vector3());
 
-      // 4) Decompose to position + quaternion
-      const pos   = new THREE.Vector3();
-      const quat  = new THREE.Quaternion();
-      const scale = new THREE.Vector3();
-      mat.decompose(pos, quat, scale);
+      console.log('📐 Anchor position:', pos, '🌀 Anchor quaternion:', quat);
 
-      console.log('🔢 Anchor position:', pos);
-      console.log('🌀 Anchor quaternion:', quat);
-
-      // 5) Spawn a blue box at that exact world pose
       const box = document.createElement('a-box');
       box.setAttribute('depth',  '0.3');
       box.setAttribute('height', '0.3');
@@ -81,9 +84,6 @@
       box.object3D.position.copy(pos);
       box.object3D.quaternion.copy(quat);
       sceneEl.appendChild(box);
-
-      // Optionally remove the tracker so it no longer toggles your hack
-      // trackerEl.remove();
     });
   })();
   </script>
