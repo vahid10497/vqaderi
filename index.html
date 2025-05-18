@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Pin & Forget (On‐Screen Debug)</title>
+  <title>MindAR Pin &amp; Forget (Forward Offset)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR.js -->
+  <!-- MindAR.js core + A-Frame integration -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
@@ -22,11 +22,11 @@
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: true"
   >
-    <!-- Camera + debug text -->
+    <!-- 1) Camera + on-screen debug text -->
     <a-camera look-controls="enabled: false">
       <a-text
         id="pinText"
-        value="🔍 Waiting..."
+        value="🔍 Waiting for image…"
         position="0 -0.5 -1"
         align="center"
         color="white"
@@ -34,7 +34,7 @@
       ></a-text>
     </a-camera>
 
-    <!-- Tracker + brown live box -->
+    <!-- 2) Tracker + initial brown box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
@@ -57,40 +57,41 @@
         if (pinned) return;
         pinned = true;
 
-        // 1) turn brown → green
+        // 1) Immediate feedback: brown → green
         liveBox.setAttribute('material','color: green;');
 
-        // 2) compute scene‐local pin position
+        // 2) Compute scene-local pin position
         const trackerPos = trackerEl.object3D.position.clone();
         const liveOffset = liveBox.object3D.position.clone();
         const pinPos = trackerPos.add(liveOffset);
         console.log('📐 Pin position (scene-local):', pinPos);
 
-        // update on-screen text
+        // Update on-screen text
         pinText.setAttribute('value',
-          `📐 Pin: x=${pinPos.x.toFixed(3)} `+
-          `y=${pinPos.y.toFixed(3)} `+
+          `📐 Pin @ x=${pinPos.x.toFixed(3)} ` +
+          `y=${pinPos.y.toFixed(3)} ` +
           `z=${pinPos.z.toFixed(3)}`
         );
 
-        // 3) spawn blue box
+        // 3) Spawn blue box 1 m in front along −Z (camera forward)
         const blueBox = document.createElement('a-box');
         blueBox.setAttribute('depth','0.5');
         blueBox.setAttribute('height','0.5');
         blueBox.setAttribute('width','0.5');
         blueBox.setAttribute('material','color: blue;');
+        // position = pinPos + (0,0,−1)
         blueBox.setAttribute(
           'position',
-          `${pinPos.x.toFixed(3)} ${pinPos.y.toFixed(3)} ${pinPos.z.toFixed(3)}`
+          `${pinPos.x.toFixed(3)} ${pinPos.y.toFixed(3)} ${(pinPos.z - 1).toFixed(3)}`
         );
         sceneEl.appendChild(blueBox);
-        console.log('✅ Blue box appended');
+        console.log('✅ Blue box appended at offset');
 
-        // 4) delay cleanup
+        // 4) After 3s, clean up tracker & pause
         setTimeout(async () => {
           if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
           await sceneEl.components['mindar-image'].pause();
-          pinText.setAttribute('value','⏹️ Tracker removed');
+          pinText.setAttribute('value','⏹️ Tracker removed, AR paused');
           console.log('⏹️ Tracker removed & MindAR paused');
         }, 3000);
       });
