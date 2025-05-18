@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget (Scene Listener)</title>
+  <title>MindAR Pin & Forget (Yellow→Red)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -24,62 +24,58 @@
   >
     <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- Tracker + red box -->
+    <!-- Tracker + yellow box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="model"
         position="0 0.5 0"
         depth="0.5" height="0.5" width="0.5"
-        material="color: red;"
+        material="color: yellow;"
       ></a-box>
     </a-entity>
   </a-scene>
 
   <script>
+    // Grab references
     const sceneEl   = document.getElementById('scene');
     const trackerEl = document.getElementById('tracker');
     const modelEl   = document.getElementById('model');
     let pinned = false;
 
-    console.log('▶️ Waiting for scene.targetFound…');
+    // Wait for the scene to detect the image
     sceneEl.addEventListener('targetFound', async (e) => {
-      console.log('🔍 scene.targetFound', e.detail);
-      // only once, only for targetIndex 0
+      // Only for our first target, only once
       if (pinned || e.detail.index !== 0) return;
       pinned = true;
 
-      // 1) Grab world pos & quat of tracker
-      const worldPos = new THREE.Vector3();
-      const worldQuat = new THREE.Quaternion();
+      // 1) Read world-space pose of the tracker entity
+      const worldPos  = new AFRAME.THREE.Vector3();
+      const worldQuat = new AFRAME.THREE.Quaternion();
       trackerEl.object3D.getWorldPosition(worldPos);
       trackerEl.object3D.getWorldQuaternion(worldQuat);
-      console.log('📐 world pose:', worldPos, worldQuat);
 
-      // 2) Create yellow box at that pose
+      // 2) Create a new red box at that pose
       const anchorBox = document.createElement('a-box');
-      anchorBox.setAttribute('position', `${worldPos.x} ${worldPos.y} ${worldPos.z}`);
-      // convert to euler degrees
-      const euler = new THREE.Euler().setFromQuaternion(worldQuat);
-      anchorBox.setAttribute('rotation',
-        `${THREE.MathUtils.radToDeg(euler.x)} ` +
-        `${THREE.MathUtils.radToDeg(euler.y)} ` +
-        `${THREE.MathUtils.radToDeg(euler.z)}`
-      );
-      anchorBox.setAttribute('depth', '0.5');
+      anchorBox.setAttribute('depth',  '0.5');
       anchorBox.setAttribute('height', '0.5');
-      anchorBox.setAttribute('width', '0.5');
-      anchorBox.setAttribute('material', 'color: yellow;');
+      anchorBox.setAttribute('width',  '0.5');
+      anchorBox.setAttribute('material','color: red;');
 
+      // Once the element is in the DOM, set its object3D
+      anchorBox.addEventListener('loaded', () => {
+        anchorBox.object3D.position.copy(worldPos);
+        anchorBox.object3D.quaternion.copy(worldQuat);
+      });
+
+      // 3) Append to scene root
       sceneEl.appendChild(anchorBox);
-      console.log('➕ Yellow box pinned in world space.');
 
-      // 3) Hide original red box + tracker
+      // 4) Hide the original yellow box and its tracker
       modelEl.setAttribute('visible', 'false');
       trackerEl.setAttribute('visible', 'false');
 
-      // 4) Stop MindAR so no further toggles occur
+      // 5) Stop the MindAR tracking loop
       await sceneEl.components['mindar-image'].stop();
-      console.log('⏹️ MindAR stopped.');
     });
   </script>
 </body>
