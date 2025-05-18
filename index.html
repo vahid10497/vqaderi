@@ -2,82 +2,91 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR + Three.js Anchor Demo</title>
+  <title>v1049 – Anchor via matrixWorld</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <style>body { margin:0; overflow:hidden; }</style>
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <!-- MindAR.js + A-Frame integration -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
+    a-scene     { width:100%; height:100 }
+  </style>
 </head>
 <body>
-  <button id="start">Start AR</button>
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
-    import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
+  <a-scene
+    id="scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
+    debugUIEnabled="true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true"
+  >
+    <a-camera look-controls="enabled: false"></a-camera>
 
-    const startButton = document.getElementById('start');
+    <!-- Tracker + initial brown box -->
+    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+      <a-box
+        id="liveBox"
+        position="0 0.5 0"
+        depth="0.5" height="0.5" width="0.5"
+        material="color: brown;"
+      ></a-box>
+    </a-entity>
+  </a-scene>
 
-    startButton.addEventListener('click', async () => {
-      startButton.style.display = 'none';
-
-      // 1) Initialize MindARThree
-      const mindarThree = new MindARThree({
-        container: document.body,
-        imageTargetSrc: './targets.mind',
-        maxTrack: 1,
-      });
-      const { renderer, scene, camera } = mindarThree;
-
-      // 2) Add lighting
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
-
-      // 3) Create ARButton + enable AR session
-      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
-      renderer.xr.enabled = true;
-
-      // 4) Create an anchor for targetIndex 0
-      const anchor = mindarThree.addAnchor(0);
-
-      // 5) Create a placeholder box under the anchor
-      const geo = new THREE.BoxGeometry(0.3,0.3,0.3);
-      const mat = new THREE.MeshStandardMaterial({ color: 'brown' });
-      const liveBox = new THREE.Mesh(geo, mat);
-      liveBox.position.set(0, 0.5, 0);
-      anchor.group.add(liveBox);
-
-      // 6) On first detection, spawn a red sphere at the anchor’s world pose
+  <script>
+    (async () => {
+      const sceneEl   = document.getElementById('scene');
+      const trackerEl = document.getElementById('tracker');
+      const liveBox   = document.getElementById('liveBox');
       let pinned = false;
-      anchor.onTargetFound = () => {
+
+      trackerEl.addEventListener('targetFound', () => {
         if (pinned) return;
         pinned = true;
 
-        // clone the world matrix of the anchor.group
-        const m = anchor.group.matrixWorld.clone();
-        const pos = new THREE.Vector3();
-        const quat = new THREE.Quaternion();
-        const scl = new THREE.Vector3();
-        m.decompose(pos, quat, scl);
+        // 1) Immediate feedback: brown→green
+        liveBox.setAttribute('material','color: green;');
 
-        // make a red sphere and place it at pos/quaternion
-        const sph = new THREE.Mesh(
-          new THREE.SphereGeometry(0.2, 32,32),
-          new THREE.MeshStandardMaterial({ color: 'red' })
-        );
-        sph.position.copy(pos);
-        sph.quaternion.copy(quat);
-        scene.add(sph);
+        // 2) Wait a tick so matrixWorld is fully updated
+        requestAnimationFrame(() => {
+          // 3) Grab the exact world‐space matrix of liveBox
+          const matrixWorld = liveBox.object3D.matrixWorld.clone();
 
-        // detach it — it now lives free in world-space
-        // you can also anchor it to a WebXR Anchor here if you like
+          // 4) Decompose into position/quaternion/scale
+          const worldPos  = new THREE.Vector3();
+          const worldQuat = new THREE.Quaternion();
+          const worldScale= new THREE.Vector3();
+          matrixWorld.decompose(worldPos, worldQuat, worldScale);
 
-        // leave the liveBox in place for 3s, then remove it
-        setTimeout(() => anchor.group.remove(liveBox), 3000);
-      };
+          // Convert quaternion to Euler for A-Frame rotation attr
+          const worldEuler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
+          const rx = THREE.MathUtils.radToDeg(worldEuler.x).toFixed(1);
+          const ry = THREE.MathUtils.radToDeg(worldEuler.y).toFixed(1);
+          const rz = THREE.MathUtils.radToDeg(worldEuler.z).toFixed(1);
 
-      // 7) Start MindAR render loop
-      await mindarThree.start();
-      renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
+          // 5) Spawn permanent red box at that exact pose
+          const redBox = document.createElement('a-box');
+          redBox.setAttribute('depth','0.5');
+          redBox.setAttribute('height','0.5');
+          redBox.setAttribute('width','0.5');
+          redBox.setAttribute('material','color: red;');
+          redBox.setAttribute(
+            'position',
+            `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
+          );
+          redBox.setAttribute('rotation', `${rx} ${ry} ${rz}`);
+          sceneEl.appendChild(redBox);
+
+          // 6) Delay removal & pause by 3 seconds
+          setTimeout(async () => {
+            if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
+            await sceneEl.components['mindar-image'].pause();
+          }, 3000);
+        });
       });
-    });
+    })();
   </script>
 </body>
 </html>
