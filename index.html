@@ -2,92 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>v1049 – Debug matrixWorld Anchor</title>
+  <title>AR.js NFT Marker “marker”</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR.js + A-Frame integration -->
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <!-- AR.js NFT build -->
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   <style>
     body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
     a-scene     { width:100%; height:100 }
   </style>
 </head>
 <body>
-  <a-scene
-    id="scene"
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
-    debugUIEnabled="true"
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: true"
+  <a-scene  
+    embedded  
+    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
   >
-    <a-camera look-controls="enabled: false"></a-camera>
-
-    <!-- Tracker + initial brown box -->
-    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+    <!-- NFT Marker named “marker” in your root folder -->
+    <a-nft
+      type="nft"
+      url="marker"
+      smooth="true"
+      smoothCount="10"
+      smoothTolerance="0.01"
+      smoothThreshold="5"
+    >
+      <!-- This red box will appear “stuck” to your marker -->
       <a-box
-        id="liveBox"
-        position="0 0.5 0"
-        depth="0.5" height="0.5" width="0.5"
-        material="color: brown;"
+        position="0 0.3 0"
+        scale="0.5 0.5 0.5"
+        material="color: red;"
       ></a-box>
-    </a-entity>
+    </a-nft>
+
+    <!-- Standard AR.js camera -->
+    <a-entity camera></a-entity>
   </a-scene>
-
-  <script>
-    (function() {
-      const sceneEl   = document.getElementById('scene');
-      const trackerEl = document.getElementById('tracker');
-      const liveBox   = document.getElementById('liveBox');
-      let pinned = false;
-
-      trackerEl.addEventListener('targetFound', () => {
-        if (pinned) return;
-        pinned = true;
-
-        // 1) Visual feedback
-        liveBox.setAttribute('material','color: green;');
-        console.log('🔍 targetFound – liveBox now green');
-
-        // 2) Next frame, ensure world matrices are updated
-        requestAnimationFrame(() => {
-          // Force update of matrices
-          sceneEl.object3D.updateMatrixWorld(true);
-          liveBox.object3D.updateWorldMatrix(true, false);
-
-          // 3) Read matrixWorld
-          const mWorld = liveBox.object3D.matrixWorld.clone();
-          console.log('🔢 matrixWorld:', mWorld.elements);
-
-          // 4) Decompose into pos/quaternion
-          const pos  = new THREE.Vector3();
-          const quat = new THREE.Quaternion();
-          const scl  = new THREE.Vector3();
-          mWorld.decompose(pos, quat, scl);
-          console.log(`📐 decomposed position: ${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}`);
-          console.log(`🎯 decomposed quaternion: ${quat.x.toFixed(3)}, ${quat.y.toFixed(3)}, ${quat.z.toFixed(3)}, ${quat.w.toFixed(3)}`);
-
-          // 5) Spawn red box at that exact pose
-          const redBox = document.createElement('a-box');
-          redBox.setAttribute('depth','0.5');
-          redBox.setAttribute('height','0.5');
-          redBox.setAttribute('width','0.5');
-          redBox.setAttribute('material','color: red;');
-          redBox.object3D.position.copy(pos);
-          redBox.object3D.quaternion.copy(quat);
-          sceneEl.appendChild(redBox);
-          console.log('✅ redBox appended at liveBox pose');
-
-          // 6) After 3s, remove tracker & pause MindAR
-          setTimeout(async () => {
-            trackerEl.remove();
-            await sceneEl.components['mindar-image'].pause();
-            console.log('⏹️ tracker removed & MindAR paused');
-          }, 3000);
-        });
-      });
-    })();
-  </script>
 </body>
 </html>
