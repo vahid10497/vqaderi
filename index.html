@@ -2,98 +2,96 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>WebXR Image-Tracking + Pin & Forget</title>
+  <title>WebXR Image-Tracking Pin & Forget</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; }
-    #message {
-      position:absolute; top:0; width:100%; padding:1em;
-      background:rgba(0,0,0,0.6); color:white; text-align:center;
-      font-family:sans-serif; z-index:1;
+    #overlay {
+      position:absolute; top:0; left:0; right:0; bottom:0;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,0.8); color:white; font-family:sans-serif;
+      z-index:10;
     }
+    #xr-canvas { width:100%; height:100%; display:block; }
   </style>
 </head>
 <body>
-  <div id="message">Initializing…</div>
+  <div id="overlay">
+    <button id="start">Start AR</button>
+  </div>
   <canvas id="xr-canvas"></canvas>
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let renderer, scene, camera;
-    let xrRefSpace, xrHitTestSource, trackedImageSet, trackedObject;
-    let pinned = false;
+    // Wait for user tap
+    document.getElementById('start').addEventListener('click', async () => {
+      const overlay = document.getElementById('overlay');
+      overlay.style.display = 'none';
 
-    init();
-    async function init() {
-      // 1) Three.js setup
-      scene    = new THREE.Scene();
-      camera   = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      // 1) Check for WebXR support
+      if (!navigator.xr) {
+        alert('WebXR not available');
+        return;
+      }
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        alert('AR not supported on this device/browser');
+        return;
+      }
+
+      // 2) Load your marker image
+      const markerImg = new Image();
+      markerImg.src = './marker.png';
+      await markerImg.decode();
+
+      // 3) Create Three.js scene
+      const canvas = document.getElementById('xr-canvas');
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
+      renderer.autoClear = false;
       renderer.xr.enabled = true;
+      const scene  = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera();
 
-      // 2) Light + red box
       scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
-      trackedObject = new THREE.Mesh(
+
+      // Create a red box (initially hidden)
+      const box = new THREE.Mesh(
         new THREE.BoxGeometry(0.2,0.2,0.2),
         new THREE.MeshStandardMaterial({ color: 0xff0000 })
       );
-      trackedObject.visible = false;
-      scene.add(trackedObject);
+      box.visible = false;
+      scene.add(box);
 
-      // 3) AR Button with image-tracking feature
-      document.body.appendChild( ARButton.createButton(renderer, {
-        requiredFeatures: ['image-tracking'],
-        trackedImages: await loadMarkerImage('./marker.png')
-      }) );
+      // 4) Request an AR session with image-tracking
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['image-tracking', 'local-floor'],
+        trackedImages: [{ image: markerImg, widthInMeters: 0.2 }]
+      });
+      renderer.xr.setSession(session);
 
-      renderer.xr.addEventListener('sessionstart', onSessionStart);
-      renderer.setAnimationLoop(render);
-    }
+      const refSpace = await session.requestReferenceSpace('local-floor');
 
-    // Load the marker image into an XRTrackedImageInit
-    async function loadMarkerImage(url) {
-      const img = new Image();
-      img.src = url;
-      await img.decode();
-      return [{image: img, widthInMeters: 0.2}];
-    }
-
-    function onSessionStart() {
-      const session = renderer.xr.getSession();
-      xrRefSpace = renderer.xr.getReferenceSpace();
-      // grab trackedImages set
-      trackedImageSet = session.trackedImages;
-      document.getElementById('message').innerText = 'Point at the marker image';
-    }
-
-    function render(timestamp, frame) {
-      const session = renderer.xr.getSession();
-      const trackedImages = frame.getImageTrackingResults();
-      if (trackedImages.length > 0) {
-        for (const result of trackedImages) {
-          const state = result.trackingState; // "tracked", "emulated", or "not-tracked"
-          if (state === 'tracked') {
-            // get pose of the image in world space
-            const pose = frame.getPose(result.imageSpace, xrRefSpace);
-            if (pose) {
-              // apply pose to our box
-              trackedObject.visible = true;
-              trackedObject.matrix.fromArray(pose.transform.matrix);
-              trackedObject.matrixAutoUpdate = false;
-              pinned = true; // we’ve seen it
+      // 5) Render loop
+      renderer.setAnimationLoop((time, frame) => {
+        if (frame) {
+          // Get image-tracking results
+          const results = frame.getImageTrackingResults();
+          for (const result of results) {
+            if (result.trackingState === 'tracked') {
+              const pose = frame.getPose(result.imageSpace, refSpace);
+              if (pose) {
+                // Position & orient the box
+                box.matrix.fromArray(pose.transform.matrix);
+                box.matrix.decompose(box.position, box.quaternion, box.scale);
+                box.visible = true;
+              }
             }
           }
         }
-      } else if (pinned) {
-        // image lost after being tracked → leave the box in place
-        document.getElementById('message').innerText = '🔒 Object pinned';
-      }
-
-      renderer.render(scene, camera);
-    }
+        renderer.render(scene, camera);
+      });
+    });
   </script>
 </body>
 </html>
