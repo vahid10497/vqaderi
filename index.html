@@ -1,91 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>MindAR AnchorHack (Fixed Start)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <style>
-    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100; background:#000 }
-    #startButton {
-      position: absolute; top:50%; left:50%;
-      transform: translate(-50%,-50%);
-      padding:1em 2em; font-size:1.2em;
-      background:#28a; color:#fff; border:none; border-radius:0.3em;
-      z-index:2;
-    }
-    a-scene { display:none; }
-  </style>
-</head>
-<body>
-  <button id="startButton">Start AR</button>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>MindAR Minimal Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <a-scene
-    id="scene"
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; debugUIEnabled: true;"
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: false"
-  >
-    <a-camera look-controls="enabled: false"></a-camera>
-    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-      <a-box position="0 0.5 0" depth="0.3" height="0.3" width="0.3" material="color: yellow;"></a-box>
-    </a-entity>
-  </a-scene>
+    <!-- 1) A-Frame core -->
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- 2) MindAR core & A-Frame integration -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-  <script>
-  (function(){
-    const startButton = document.getElementById('startButton');
-    const sceneEl     = document.getElementById('scene');
-    const trackerEl   = document.getElementById('tracker');
+    <style>
+      body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+      a-scene { width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <a-scene
+      mindar-image="
+        imageTargetSrc: ./YOUR_TARGETS_FILE.mind;
+        autoStart: true;
+      "
+      device-orientation-permission-ui="enabled: true"
+      debugUIEnabled="true"
+      vr-mode-ui="enabled: false"
+    >
+      <!-- camera -->
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    // expose available systems for debugging
-    console.log('🛠 Available A-Frame systems:', Object.keys(sceneEl.systems));
-
-    startButton.addEventListener('click', async () => {
-      // pick the correct MindAR system key
-      const mindarSys = sceneEl.systems['mindar-image'] || sceneEl.systems.mindarImage;
-      if (!mindarSys) {
-        alert('MindAR system not found! Check console for system keys.');
-        console.error('No mindar-image or mindarImage in sceneEl.systems');
-        return;
-      }
-
-      try {
-        await mindarSys.start();   // correct method on the system
-        startButton.style.display = 'none';
-        sceneEl.style.display     = 'block';
-        console.log('✅ MindAR started');
-      } catch (err) {
-        alert('Camera start failed: ' + err.message);
-        console.error(err);
-      }
-    });
-
-    sceneEl.addEventListener('targetFound', () => {
-      // hack the internal anchor matrix
-      const mindarSys = sceneEl.systems['mindar-image'] || sceneEl.systems.mindarImage;
-      const anchor    = mindarSys.imageTracker.anchorList.get(0);
-      if (!anchor) return;
-
-      const matArr = anchor.anchorMatrix;
-      const mat    = new THREE.Matrix4().fromArray(matArr);
-      const pos    = new THREE.Vector3();
-      const quat   = new THREE.Quaternion();
-      mat.decompose(pos, quat, new THREE.Vector3());
-
-      console.log('📐 Anchor position:', pos, '🌀 Anchor quaternion:', quat);
-
-      const box = document.createElement('a-box');
-      box.setAttribute('depth',  '0.3');
-      box.setAttribute('height', '0.3');
-      box.setAttribute('width',  '0.3');
-      box.setAttribute('material','color: blue;');
-      box.object3D.position.copy(pos);
-      box.object3D.quaternion.copy(quat);
-      sceneEl.appendChild(box);
-    });
-  })();
-  </script>
-</body>
+      <!-- on-target content: a red box -->
+      <a-box mindar-image-target="targetIndex: 0"
+             position="0 0 0.5"
+             material="color: red;">
+      </a-box>
+    </a-scene>
+  </body>
 </html>
