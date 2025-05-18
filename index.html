@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>v1049 – Anchor via matrixWorld</title>
+  <title>v1049 – Debug matrixWorld Anchor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -36,7 +36,7 @@
   </a-scene>
 
   <script>
-    (async () => {
+    (function() {
       const sceneEl   = document.getElementById('scene');
       const trackerEl = document.getElementById('tracker');
       const liveBox   = document.getElementById('liveBox');
@@ -46,43 +46,44 @@
         if (pinned) return;
         pinned = true;
 
-        // 1) Immediate feedback: brown→green
+        // 1) Visual feedback
         liveBox.setAttribute('material','color: green;');
+        console.log('🔍 targetFound – liveBox now green');
 
-        // 2) Wait a tick so matrixWorld is fully updated
+        // 2) Next frame, ensure world matrices are updated
         requestAnimationFrame(() => {
-          // 3) Grab the exact world‐space matrix of liveBox
-          const matrixWorld = liveBox.object3D.matrixWorld.clone();
+          // Force update of matrices
+          sceneEl.object3D.updateMatrixWorld(true);
+          liveBox.object3D.updateWorldMatrix(true, false);
 
-          // 4) Decompose into position/quaternion/scale
-          const worldPos  = new THREE.Vector3();
-          const worldQuat = new THREE.Quaternion();
-          const worldScale= new THREE.Vector3();
-          matrixWorld.decompose(worldPos, worldQuat, worldScale);
+          // 3) Read matrixWorld
+          const mWorld = liveBox.object3D.matrixWorld.clone();
+          console.log('🔢 matrixWorld:', mWorld.elements);
 
-          // Convert quaternion to Euler for A-Frame rotation attr
-          const worldEuler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
-          const rx = THREE.MathUtils.radToDeg(worldEuler.x).toFixed(1);
-          const ry = THREE.MathUtils.radToDeg(worldEuler.y).toFixed(1);
-          const rz = THREE.MathUtils.radToDeg(worldEuler.z).toFixed(1);
+          // 4) Decompose into pos/quaternion
+          const pos  = new THREE.Vector3();
+          const quat = new THREE.Quaternion();
+          const scl  = new THREE.Vector3();
+          mWorld.decompose(pos, quat, scl);
+          console.log(`📐 decomposed position: ${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}`);
+          console.log(`🎯 decomposed quaternion: ${quat.x.toFixed(3)}, ${quat.y.toFixed(3)}, ${quat.z.toFixed(3)}, ${quat.w.toFixed(3)}`);
 
-          // 5) Spawn permanent red box at that exact pose
+          // 5) Spawn red box at that exact pose
           const redBox = document.createElement('a-box');
           redBox.setAttribute('depth','0.5');
           redBox.setAttribute('height','0.5');
           redBox.setAttribute('width','0.5');
           redBox.setAttribute('material','color: red;');
-          redBox.setAttribute(
-            'position',
-            `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
-          );
-          redBox.setAttribute('rotation', `${rx} ${ry} ${rz}`);
+          redBox.object3D.position.copy(pos);
+          redBox.object3D.quaternion.copy(quat);
           sceneEl.appendChild(redBox);
+          console.log('✅ redBox appended at liveBox pose');
 
-          // 6) Delay removal & pause by 3 seconds
+          // 6) After 3s, remove tracker & pause MindAR
           setTimeout(async () => {
-            if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
+            trackerEl.remove();
             await sceneEl.components['mindar-image'].pause();
+            console.log('⏹️ tracker removed & MindAR paused');
           }, 3000);
         });
       });
