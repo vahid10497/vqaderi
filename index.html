@@ -1,92 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>WebXR GPS Anchor Test</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <title>WebXR Auto-Place Sphere</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { margin:0; padding:0; overflow:hidden; font-family: sans-serif; }
+    body { margin:0; overflow:hidden; }
+    #xr-canvas { width:100%; height:100%; display:block; }
     #message {
-      position: absolute; top: 0; left: 0; width: 100%;
-      background: rgba(0,0,0,0.6); color: white; padding: 1em;
-      box-sizing: border-box; z-index: 10;
+      position: absolute; top: 0; width:100%; padding:1em;
+      background:rgba(0,0,0,0.6); color:white; font-family:sans-serif;
+      text-align:center; z-index:1;
     }
-    #xr-canvas { width:100%; height:100%; }
   </style>
 </head>
 <body>
-  <div id="message">Initializing WebXR…</div>
+  <div id="message">Initializing AR…</div>
   <canvas id="xr-canvas"></canvas>
-
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let renderer, scene, camera;
+    let camera, scene, renderer;
 
+    init();
     async function init() {
-      // Check WebXR support
-      if (navigator.xr === undefined) {
-        return showMessage('WebXR not available in this browser.');
-      }
-      const supported = await navigator.xr.isSessionSupported('immersive-ar');
-      if (!supported) {
-        return showMessage('AR not supported on this device/browser.');
+      // Check for WebXR AR support
+      if (navigator.xr === undefined ||
+          !(await navigator.xr.isSessionSupported('immersive-ar'))) {
+        document.getElementById('message').textContent =
+          'AR not supported on this device/browser.';
+        return;
       }
 
-      // Three.js setup
+      // Three.js boilerplate
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({canvas: document.getElementById('xr-canvas'), alpha: true});
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('xr-canvas'),
+        alpha: true,
+        antialias: true
+      });
       renderer.xr.enabled = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
 
-      // Add AR button
-      document.body.appendChild(ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test']
-      }));
+      // ARButton to start session
+      document.body.appendChild(
+        ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
+      );
 
-      // Once user taps “Enter AR”, clear message
-      renderer.xr.addEventListener('sessionstart', () => {
-        document.getElementById('message').style.display = 'none';
-      });
+      // On session start, place the sphere
+      renderer.xr.addEventListener('sessionstart', placeSphere);
 
-      // Simple scene: a grid and a cube
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-      scene.add(light);
-      const box = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.2), new THREE.MeshPhongMaterial({color: 0xff0000}));
-      box.visible = false;
-      scene.add(box);
+      // Lighting
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-      // Do a single hit-test at center of screen to place the cube
-      const session = renderer.xr.getSession();
-      const refSpace = await session.requestReferenceSpace('viewer');
-      const hitSource = await session.requestHitTestSource({space: refSpace});
-
-      renderer.setAnimationLoop((time, frame) => {
-        if (frame) {
-          const viewerPose = frame.getViewerPose(renderer.xr.getReferenceSpace());
-          if (viewerPose) {
-            const hits = frame.getHitTestResults(hitSource);
-            if (hits.length > 0) {
-              const hit = hits[0];
-              const pose = hit.getPose(renderer.xr.getReferenceSpace());
-              box.visible = true;
-              box.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
-            }
-          }
-        }
+      // Render loop
+      renderer.setAnimationLoop(() => {
         renderer.render(scene, camera);
       });
     }
 
-    function showMessage(text) {
-      const msg = document.getElementById('message');
-      msg.textContent = text;
-      msg.style.display = 'block';
-    }
+    function placeSphere() {
+      document.getElementById('message').style.display = 'none';
 
-    init();
+      // Create a sphere
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 32, 32),
+        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+      );
+
+      // Compute position 2m in front of camera
+      const cam = renderer.xr.getCamera(camera);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+      const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
+
+      sphere.position.copy(pos);
+      sphere.quaternion.copy(cam.quaternion);
+
+      // Add to scene and leave it there
+      scene.add(sphere);
+    }
   </script>
 </body>
 </html>
