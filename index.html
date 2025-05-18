@@ -1,52 +1,35 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8" />
-    <title>AR.js GPS Debug & Sphere</title>
+    <meta charset="utf-8"/>
+    <title>AR.js GPS Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <!-- 1) A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- AR.js with GPS support -->
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
-    <style>
-      body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-    </style>
+    <!-- 2) AR.js (GPS + marker + location) -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.0/aframe/build/aframe-ar.js"></script>
+    <style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden}</style>
   </head>
   <body>
     <a-scene
-      embedded
       vr-mode-ui="enabled: false"
       arjs="
         sourceType: webcam;
-        debugUIEnabled: true;      /* show the little GPS/FPS info */
-        gpsMinDistance: 0;         /* update every move */
-        gpsMinAccuracy: 100;       /* only if accuracy < 100 m */
+        debugUIEnabled: true;
+        gpsMinDistance: 5;
+        gpsMinAccuracy: 100;
       "
     >
+      <!-- GPS‐Camera must be present to drive GPS‐Entity‐Place -->
+      <a-camera gps-camera rotation-reader></a-camera>
 
-      <!-- Camera with GPS component -->
-      <a-camera
-        gps-camera="minDistance: 0; minUpdateTime: 1000;"
-        rotation-reader
-      ></a-camera>
-
-      <!-- Sphere anchored at your building coords + 3 m up -->
+      <!-- A simple sphere at your building coords + 3m up -->
       <a-sphere
+        gps-entity-place="latitude:48.29002038491218; longitude:14.282757518735202"
+        position="0 3 0"
         radius="1"
         color="#FF6600"
-        gps-entity-place="latitude: 48.29002038491218; longitude: 14.282757518735202;"
-        position="0 3 0"
-        look-at="[gps-camera]"
       ></a-sphere>
-
-      <!-- (Optional) Log every GPS update to console -->
-      <script>
-        window.addEventListener('gps-camera-update-position', e => {
-          console.log(
-            `GPS Update → lat: ${e.detail.position.latitude.toFixed(6)}, ` +
-            `lon: ${e.detail.position.longitude.toFixed(6)}, ` +
-            `acc: ${e.detail.position.accuracy.toFixed(1)}m`
-          );
-        });
-      </script>
     </a-scene>
   </body>
 </html>
