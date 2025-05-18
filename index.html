@@ -2,16 +2,35 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>MindAR Fixed Anchor</title>
+    <title>MindAR Fixed Anchor - Fullscreen</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      body { margin: 0; overflow: hidden; }
-      canvas { position: absolute; top: 0; left: 0; }
-    </style>
 
-    <!-- A-Frame + MindAR -->
+    <!-- A-Frame and MindAR -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+    <!-- Fullscreen fix -->
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        height: 100%;
+        width: 100%;
+      }
+      a-scene {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+    </style>
   </head>
 
   <body>
@@ -21,61 +40,32 @@
       renderer="colorManagement: true, physicallyCorrectLights"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: true"
-      embedded
     >
-      <!-- Load the tracking image -->
+      <!-- Assets -->
       <a-assets>
-        <a-asset-item id="building-model" src="https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models/2.0/Avocado/glTF/Avocado.gltf"></a-asset-item>
+        <a-asset-item id="model" src="https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models/2.0/Avocado/glTF/Avocado.gltf"></a-asset-item>
       </a-assets>
 
-      <!-- User camera -->
+      <!-- Camera -->
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- Image target for the building patch -->
+      <!-- Tracker target -->
       <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-        <!-- Any 3D content -->
         <a-gltf-model
           id="floatingObject"
           position="0 0 0"
           rotation="0 0 0"
           scale="0.05 0.05 0.05"
-          src="#building-model"
+          src="#model"
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
+    <!-- Pinned anchor logic -->
     <script>
       AFRAME.scenes[0].addEventListener("renderstart", () => {
         const tracker = document.getElementById("tracker");
         const model = document.getElementById("floatingObject");
+        const scene = document.querySelector("a-scene");
 
         let pinned = false;
-
-        tracker.addEventListener("targetFound", async () => {
-          if (pinned) return;
-
-          // Clone and pin the object
-          const clone = model.cloneNode(true);
-          const scene = document.querySelector("a-scene");
-          const wrapper = document.createElement("a-entity");
-
-          // Apply world transform
-          wrapper.object3D.matrix.copy(tracker.object3D.matrixWorld);
-          wrapper.object3D.matrix.decompose(
-            wrapper.object3D.position,
-            wrapper.object3D.quaternion,
-            wrapper.object3D.scale
-          );
-
-          wrapper.appendChild(clone);
-          scene.appendChild(wrapper);
-
-          // Hide live tracker and stop MindAR
-          tracker.setAttribute("visible", false);
-          await scene.components["mindar-image"].stop();
-          pinned = true;
-        });
-      });
-    </script>
-  </body>
-</html>
