@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>NFT Pin & Forget</title>
+  <title>MindAR Pin & Forget</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <!-- A-Frame core -->
+  <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- AR.js NFT build -->
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+  <!-- MindAR.js A-Frame integration -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
-    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
-    a-scene     { width:100%; height:100 }
+    body, html { margin:0;padding:0;overflow:hidden;width:100%;height:100 }
+    a-scene     { width:100%;height:100 }
     #debug {
       position: absolute; top:0; left:0;
       padding:0.5em; background:rgba(0,0,0,0.7);
@@ -19,71 +19,76 @@
   </style>
 </head>
 <body>
-  <div id="debug">🔍 Waiting for marker…</div>
+  <div id="debug">🔍 Waiting for image…</div>
 
-  <a-scene embedded arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: true;">
-    <a-nft
-      type="nft"
-      url="./Marker"
-      smooth="true"
-      emitevents="true"
-      onMarkerFound="document.getElementById('debug').innerText='✅ Marker found';"
-      onMarkerLost=" document.getElementById('debug').innerText='❌ Marker lost';"
-    >
-      <!-- This box follows the marker -->
+  <a-scene
+    id="scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; debugUIEnabled: true;"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true"
+  >
+    <a-camera look-controls="enabled: false"></a-camera>
+
+    <!-- Tracker + live yellow box -->
+    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
         position="0 0.5 0"
         scale="0.5 0.5 0.5"
         material="color: yellow;"
       ></a-box>
-    </a-nft>
-
-    <!-- AR.js camera -->
-    <a-entity camera></a-entity>
+    </a-entity>
   </a-scene>
 
   <script>
-    // Once the marker is found, pin & forget the box
-    document.querySelector('a-nft').addEventListener('markerFound', () => {
-      const scene = document.querySelector('a-scene');
-      const liveBox = document.getElementById('liveBox');
-      const nftEl = document.querySelector('a-nft');
+  (function() {
+    const sceneEl   = document.getElementById('scene');
+    const trackerEl = document.getElementById('tracker');
+    const liveBox   = document.getElementById('liveBox');
+    const debug     = document.getElementById('debug');
+    let pinned = false;
 
-      // 1) ensure matrices are up-to-date
-      requestAnimationFrame(() => {
-        scene.object3D.updateMatrixWorld(true);
-        liveBox.object3D.updateWorldMatrix(true, false);
+    trackerEl.addEventListener('targetFound', async () => {
+      if (pinned) return;
+      pinned = true;
+      debug.innerText = '✅ Image found! Pinning box…';
 
-        // 2) grab its world-space matrix
-        const m = liveBox.object3D.matrixWorld.clone();
+      // 1) Make sure the latest world matrices are computed
+      sceneEl.object3D.updateMatrixWorld(true);
+      liveBox.object3D.updateWorldMatrix(true, false);
 
-        // 3) decompose into pos/quaternion
-        const pos  = new THREE.Vector3();
-        const quat = new THREE.Quaternion();
-        const scl  = new THREE.Vector3();
-        m.decompose(pos, quat, scl);
+      // 2) Clone and decompose its world matrix into pos/quaternion
+      const m = liveBox.object3D.matrixWorld.clone();
+      const pos  = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl  = new THREE.Vector3();
+      m.decompose(pos, quat, scl);
 
-        // 4) reparent under <a-scene>
-        scene.appendChild(liveBox);
+      // 3) Reparent the box under <a-scene>
+      sceneEl.appendChild(liveBox);
 
-        // 5) reapply pose as attributes
-        const euler = new THREE.Euler().setFromQuaternion(quat, 'XYZ');
-        liveBox.setAttribute(
-          'position',
-          `${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`
-        );
-        liveBox.setAttribute(
-          'rotation',
-          `${THREE.MathUtils.radToDeg(euler.x).toFixed(1)} ` +
-          `${THREE.MathUtils.radToDeg(euler.y).toFixed(1)} ` +
-          `${THREE.MathUtils.radToDeg(euler.z).toFixed(1)}`
-        );
+      // 4) Reapply the exact world-space pose as its new attributes
+      const euler = new THREE.Euler().setFromQuaternion(quat, 'XYZ');
+      liveBox.setAttribute(
+        'position',
+        `${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`
+      );
+      liveBox.setAttribute(
+        'rotation',
+        `${THREE.MathUtils.radToDeg(euler.x).toFixed(1)} ` +
+        `${THREE.MathUtils.radToDeg(euler.y).toFixed(1)} ` +
+        `${THREE.MathUtils.radToDeg(euler.z).toFixed(1)}`
+      );
 
-        // 6) remove the NFT tracker so the box stays in place
-        nftEl.remove();
-      });
+      // 5) Pause MindAR so it no longer hides content
+      await sceneEl.components['mindar-image'].pause();
+
+      // 6) Remove the now-unused tracker entity
+      trackerEl.remove();
+
+      debug.innerText = '🔒 Box pinned in place!';
     });
+  })();
   </script>
 </body>
 </html>
