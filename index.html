@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>v1049 – Anchor via anchorMatrix (Fixed)</title>
+  <title>v1049 – Pure MindAR Anchor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <!-- A-Frame core -->
+  <!-- A-Frame core only -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR.js A-Frame integration -->
+  <!-- MindAR Image Tracking ONLY -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
     body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
@@ -31,21 +31,11 @@
 
     <!-- Tracker + live yellow box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-      <a-box
-        id="liveBox"
-        position="0 0.5 0"
-        scale="0.3 0.3 0.3"
-        material="color: yellow;"
-      ></a-box>
+      <a-box id="liveBox" position="0 0.5 0" scale="0.3 0.3 0.3" material="color: yellow;"></a-box>
     </a-entity>
 
     <!-- External box, initially hidden -->
-    <a-box
-      id="externalBox"
-      visible="false"
-      scale="0.5 0.5 0.5"
-      material="color: red;"
-    ></a-box>
+    <a-box id="externalBox" visible="false" scale="0.5 0.5 0.5" material="color: red;"></a-box>
   </a-scene>
 
   <script>
@@ -61,25 +51,25 @@
       pinned = true;
       debug.innerText = '✅ Image found — computing anchor pose…';
 
-      // 1) Grab MindAR system & its anchor matrix
+      // Pull the MindAR system (imageTracker) directly
       const mindarSys = sceneEl.systems.mindarImage;
       const anchor    = mindarSys.imageTracker.anchorList.get(0);
-      const matArr    = anchor.anchorMatrix;                 // Float32Array[16]
+      const matArr    = anchor.anchorMatrix;              // clean meters
       const mat       = new THREE.Matrix4().fromArray(matArr);
 
-      // 2) Decompose into position & quaternion
+      // Decompose to pos/quaternion
       const pos  = new THREE.Vector3();
       const quat = new THREE.Quaternion();
       const scl  = new THREE.Vector3();
       mat.decompose(pos, quat, scl);
 
-      // 3) Convert quaternion → Euler for A-Frame
+      // Convert to Euler for A-Frame rotation
       const euler = new THREE.Euler().setFromQuaternion(quat, 'XYZ');
       const rx = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
       const ry = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
       const rz = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
 
-      // 4) Position & orient the externalBox
+      // Snap externalBox into place
       externalBox.object3D.position.copy(pos);
       externalBox.object3D.quaternion.copy(quat);
       externalBox.setAttribute('position',
@@ -90,7 +80,7 @@
 
       debug.innerText = '🔒 External box pinned! Removing tracker in 3s…';
 
-      // 5) After 3s, remove the tracker & pause MindAR
+      // After 3s, remove tracker & pause MindAR
       setTimeout(async () => {
         trackerEl.remove();
         await sceneEl.components['mindar-image'].pause();
