@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget Debug</title>
+  <title>MindAR Pin & Forget (Scene Event)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- A-Frame -->
@@ -11,20 +11,17 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-  <style>
-    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100% }
-    a-scene { width:100%; height:100% }
-  </style>
+  <style>body,html{margin:0;padding:0;overflow:hidden;width:100%;height:100%}a-scene{width:100%;height:100%}</style>
 </head>
 <body>
   <a-scene
+    id="scene"
     mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
     debugUIEnabled="true"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: true"
   >
     <a-camera look-controls="enabled: false"></a-camera>
-
     <!-- Tracker with the red box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0" visible="true">
       <a-box
@@ -37,54 +34,46 @@
   </a-scene>
 
   <script>
-    const sceneEl   = document.querySelector('a-scene');
+    const sceneEl   = document.getElementById('scene');
     const trackerEl = document.getElementById('tracker');
     const modelEl   = document.getElementById('model');
     let pinned = false;
 
-    console.log('▶️ Waiting for tracker.targetFound…');
-    trackerEl.addEventListener('targetFound', async () => {
-      console.log('🔍 targetFound event fired on tracker!');
-      if (pinned) {
-        console.log('⚠️ Already pinned, skipping.');
+    console.log('▶️ Waiting for scene.targetFound…');
+    sceneEl.addEventListener('targetFound', (e) => {
+      console.log('🔍 scene.targetFound', e.detail);
+      if (pinned || e.detail.index !== 0) {
+        console.log('⚠️ Already pinned or wrong target');
         return;
       }
       pinned = true;
 
       // 1) Capture world matrix
       const worldMatrix = trackerEl.object3D.matrixWorld.clone();
-      console.log('📐 Captured worldMatrix:', worldMatrix);
+      console.log('📐 worldMatrix captured', worldMatrix);
 
-      // 2) Create anchor + clone
+      // 2) Build anchor + clone
       const anchor = document.createElement('a-entity');
       const clone  = modelEl.cloneNode(true);
       anchor.appendChild(clone);
-      console.log('✂️ Cloned model into new anchor.');
+      console.log('✂️ Cloned model');
 
-      // 3) Apply transform
+      // 3) Apply matrix to anchor
       anchor.object3D.matrix.copy(worldMatrix);
       anchor.object3D.matrix.decompose(
         anchor.object3D.position,
         anchor.object3D.quaternion,
         anchor.object3D.scale
       );
-      console.log('🔧 Applied matrix to anchor:', anchor.object3D.position, anchor.object3D.quaternion);
+      console.log('🔧 Anchor transform set', anchor.object3D.position);
 
       // 4) Append to scene
       sceneEl.appendChild(anchor);
-      console.log('➕ Anchor appended to scene root.');
+      console.log('➕ Anchor appended');
 
-      // 5) Hide original tracker
+      // 5) Hide tracker
       trackerEl.setAttribute('visible', 'false');
-      console.log('🙈 Original tracker hidden.');
-
-      // 6) Stop MindAR
-      try {
-        await sceneEl.components['mindar-image'].stop();
-        console.log('⏹️ MindAR tracking stopped.');
-      } catch(err) {
-        console.error('❌ Error stopping MindAR:', err);
-      }
+      console.log('🙈 Tracker hidden');
     });
   </script>
 </body>
