@@ -1,45 +1,41 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>AR.js GPS Anchor Example</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+<a-scene mindar-image="imageTargetSrc: targets.mind; autoStart: true;">
+  <a-camera></a-camera>
+  <!-- tracker holds your live box -->
+  <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+    <a-box id="liveBox" position="0 0.5 0" material="color: yellow;"></a-box>
+  </a-entity>
+</a-scene>
 
-    <!-- A-Frame core -->
-    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- AR.js A-Frame + GPS support -->
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+<script>
+  const sceneEl   = document.querySelector('a-scene');
+  const trackerEl = document.getElementById('tracker');
 
-    <style>
-      body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
-      a-scene     { width: 100%; height: 100%; }
-    </style>
-  </head>
+  sceneEl.addEventListener('targetFound', () => {
+    // 1) get the MindAR component
+    const mindar = sceneEl.components['mindar-image'];
 
-  <body>
-    <a-scene
-      embedded
-      vr-mode-ui="enabled: false"
-      arjs="sourceType: webcam; gpsMinDistance: 5; debugUIEnabled: false;"
-    >
-      <!-- 
-        Simulate your camera at your first-floor window coordinates 
-        (replace simulateLatitude/Longitude with your real location or remove them for live GPS)
-      -->
-      <a-camera
-        gps-camera="simulateLatitude: 48.29001756836221; simulateLongitude: 14.282756650237488"
-        rotation-reader
-      ></a-camera>
+    // 2) grab the raw anchor matrix for targetIndex=0
+    const anchor = mindar.imageTracker.anchorList.get(0);
+    const matArr = anchor.anchorMatrix;
 
-      <!-- 
-        Place a big red sphere at the rooftop coordinates 
-        (48.28961166630169, 14.282566825905297) 
-      -->
-      <a-sphere
-        color="red"
-        radius="2"
-        gps-entity-place="latitude: 48.28961166630169; longitude: 14.282566825905297;"
-      ></a-sphere>
-    </a-scene>
-  </body>
-</html>
+    // 3) decompose it
+    const m = new THREE.Matrix4().fromArray(matArr);
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    m.decompose(pos, quat, scale);
+
+    console.log('🔢 Anchor pos:', pos);
+    console.log('🌀 Anchor quat:', quat);
+
+    // 4) reparent your box under scene and snap it to pos+quat
+    const liveBox = document.getElementById('liveBox');
+    sceneEl.appendChild(liveBox);
+    liveBox.object3D.position.copy(pos);
+    liveBox.object3D.quaternion.copy(quat);
+
+    // now the box is truly locked in world-space
+    // you can even remove the tracker if you like:
+    trackerEl.remove();
+  });
+</script>
