@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>NFT Marker “Marker”</title>
+  <title>NFT Marker "Marker"</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.0/aframe/build/aframe-ar-nft.js"></script>
   <style>
-    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
-    a-scene     { width:100%; height:100 }
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100% }
+    a-scene { width:100%; height:100% }
     #debug {
       position: absolute; top:0; left:0;
       padding:0.5em;
@@ -17,23 +17,82 @@
       font-family:monospace;
       z-index:1;
     }
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 1.5em;
+      background: rgba(0,0,0,0.7);
+      padding: 1em;
+      border-radius: 0.5em;
+    }
   </style>
 </head>
 <body>
-  <div id="debug">🔍 Loading NFT files…</div>
+  <div id="debug">Initializing AR...</div>
+  <div id="loading">Loading AR environment...</div>
 
-  <a-scene embedded arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: true;">
+  <a-scene 
+    vr-mode-ui="enabled: false"
+    embedded 
+    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: true;"
+    renderer="logarithmicDepthBuffer: true; precision: medium;"
+  >
     <a-nft
+      id="nftMarker"
       type="nft"
       url="./Marker"
       smooth="true"
+      smoothCount="10"
+      smoothTolerance="0.01"
+      smoothThreshold="5"
       emitevents="true"
-      onMarkerFound="document.getElementById('debug').innerText='✅ Marker found';"
-      onMarkerLost="document.getElementById('debug').innerText='❌ Marker lost';"
     >
       <a-box position="0 0.3 0" scale="0.5 0.5 0.5" material="color:red;"></a-box>
     </a-nft>
     <a-entity camera></a-entity>
   </a-scene>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const debugDiv = document.getElementById('debug');
+      const loadingDiv = document.getElementById('loading');
+      const nftMarker = document.getElementById('nftMarker');
+      
+      // Scene loaded handler
+      document.querySelector('a-scene').addEventListener('loaded', () => {
+        loadingDiv.style.display = 'none';
+        debugDiv.innerText = '🔄 Searching for marker...';
+      });
+      
+      // NFT marker events
+      nftMarker.addEventListener('markerFound', () => {
+        debugDiv.innerText = '✅ Marker found';
+      });
+      
+      nftMarker.addEventListener('markerLost', () => {
+        debugDiv.innerText = '❌ Marker lost';
+      });
+      
+      nftMarker.addEventListener('error', (e) => {
+        console.error('NFT Error:', e.detail);
+        debugDiv.innerText = '❌ Error loading marker files';
+        loadingDiv.innerText = 'Error: Could not load marker files.\nCheck console for details.';
+      });
+      
+      // Camera access error
+      window.addEventListener('arjs-video-loaded', () => {
+        debugDiv.innerText += '\nCamera access granted';
+      });
+      
+      // Add error event listener for the scene
+      document.querySelector('a-scene').addEventListener('error', (e) => {
+        console.error('Scene Error:', e.detail);
+        debugDiv.innerText = '❌ Scene error occurred';
+      });
+    });
+  </script>
 </body>
 </html>
