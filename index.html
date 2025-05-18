@@ -9,7 +9,6 @@
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-    <!-- Fullscreen fix -->
     <style>
       html, body {
         margin: 0;
@@ -35,7 +34,7 @@
 
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./target.mind; autoStart: true;"
+      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
       color-space="sRGB"
       renderer="colorManagement: true, physicallyCorrectLights"
       vr-mode-ui="enabled: false"
@@ -49,4 +48,48 @@
       <!-- Camera -->
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- Tracker
+      <!-- Tracker -->
+      <a-entity id="tracker" mindar-image-target="targetIndex: 0">
+        <a-gltf-model
+          id="floatingObject"
+          position="0 0 0"
+          rotation="0 0 0"
+          scale="0.05 0.05 0.05"
+          src="#model"
+        ></a-gltf-model>
+      </a-entity>
+    </a-scene>
+
+    <script>
+      AFRAME.scenes[0].addEventListener("renderstart", () => {
+        const tracker = document.getElementById("tracker");
+        const model = document.getElementById("floatingObject");
+        const scene = document.querySelector("a-scene");
+
+        let pinned = false;
+
+        tracker.addEventListener("targetFound", async () => {
+          if (pinned) return;
+
+          const clone = model.cloneNode(true);
+          const wrapper = document.createElement("a-entity");
+
+          wrapper.object3D.matrix.copy(tracker.object3D.matrixWorld);
+          wrapper.object3D.matrix.decompose(
+            wrapper.object3D.position,
+            wrapper.object3D.quaternion,
+            wrapper.object3D.scale
+          );
+
+          wrapper.appendChild(clone);
+          scene.appendChild(wrapper);
+
+          tracker.setAttribute("visible", "false");
+          await scene.components["mindar-image"].stop();
+
+          pinned = true;
+        });
+      });
+    </script>
+  </body>
+</html>
