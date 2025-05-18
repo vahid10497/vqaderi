@@ -2,10 +2,9 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Persistent AR Anchor</title>
+    <title>AR Persistent Anchor</title>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
         #ar-container { width: 100vw; height: 100vh; position: relative; }
@@ -18,92 +17,117 @@
             font-family: Arial;
             z-index: 100;
         }
+        #error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 1.2em;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
     <div id="ar-container">
-        <div id="status">Scan target image to place anchor</div>
+        <div id="status">Initializing...</div>
+        <div id="error"></div>
         <canvas id="ar-canvas"></canvas>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', async () => {
-            let worldAnchor = null;
-            let model = null;
-            let arScene = null;
-            let renderer = null;
+        async function startAR() {
+            const statusEl = document.getElementById('status');
+            const errorEl = document.getElementById('error');
+            
+            try {
+                // 1. Verify camera access
+                statusEl.textContent = "Checking camera permissions...";
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                stream.getTracks().forEach(track => track.stop());
 
-            // ======================
-            // 1. INITIAL IMAGE TRACKING
-            // ======================
-            const mindarThree = new MindARThree({
-                container: document.querySelector("#ar-container"),
-                imageTargetSrc: "./targets.mind", // Your compiled target
-                maxTrack: 1,
-                uiScanning: "yes"
-            });
+                // 2. Initialize MindAR with camera params
+                statusEl.textContent = "Loading AR engine...";
+                const mindarThree = new MindARThree({
+                    container: document.querySelector("#ar-container"),
+                    imageTargetSrc: "./targets.mind",
+                    uiScanning: "yes",
+                    uiLoading: "yes",
+                    filterMinCF: 0.001,
+                    filterBeta: 0.1
+                });
 
-            const { scene, camera, renderer: arRenderer } = mindarThree;
-            renderer = arRenderer;
-            arScene = scene;
+                // 3. Set up Three.js scene
+                const { scene, camera, renderer } = mindarThree;
+                const light = new THREE.AmbientLight(0xffffff, 1);
+                scene.add(light);
 
-            // ======================
-            // 2. ANCHOR EXTRACTION
-            // ======================
-            mindarThree.onTargetFound = () => {
-                document.getElementById("status").textContent = "Anchor captured!";
-                
-                // Get anchor position/orientation
-                const anchorGroup = mindarThree.getAnchorGroup(0);
-                worldAnchor = {
-                    position: anchorGroup.position.clone(),
-                    quaternion: anchorGroup.quaternion.clone(),
-                    scale: anchorGroup.scale.clone()
+                // 4. Start AR engine
+                statusEl.textContent = "Starting tracking...";
+                await mindarThree.start();
+                renderer.setAnimationLoop(() => {
+                    mindarThree.update();
+                    renderer.render(scene, camera);
+                });
+
+                // 5. Anchor setup
+                let worldAnchor = null;
+                mindarThree.onTargetFound = () => {
+                    statusEl.textContent = "Anchor captured!";
+                    const anchorGroup = mindarThree.getAnchorGroup(0);
+                    worldAnchor = {
+                        position: anchorGroup.position.clone(),
+                        quaternion: anchorGroup.quaternion.clone(),
+                        scale: anchorGroup.scale.clone()
+                    };
+
+                    // Add your 3D model here
+                    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                    const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                    const cube = new THREE.Mesh(geometry, material);
+                    cube.position.copy(worldAnchor.position);
+                    scene.add(cube);
+
+                    // Stop tracking after 2 seconds
+                    setTimeout(() => {
+                        mindarThree.stop();
+                        statusEl.textContent = "Persistent AR active!";
+                    }, 2000);
                 };
 
-                // ======================
-                // 3. VIRTUAL CONTENT PLACEMENT
-                // ======================
-                if (model) {
-                    model.position.copy(worldAnchor.position);
-                    model.quaternion.copy(worldAnchor.quaternion);
-                    model.scale.copy(worldAnchor.scale);
-                    model.visible = true;
-                }
+            } catch (err) {
+                errorEl.innerHTML = `
+                    <strong>ERROR:</strong> ${err.name}<br>
+                    ${err.message}<br><br>
+                    ${getErrorSolution(err.name)}
+                `;
+                console.error("AR failure:", err);
+            }
+        }
 
-                // ======================
-                // 4. STOP TRACKING
-                // ======================
-                setTimeout(() => {
-                    mindarThree.stop();
-                    document.getElementById("status").textContent = "Anchor locked - tracker disabled";
-                }, 1000);
+        function getErrorSolution(errorName) {
+            const solutions = {
+                'NotAllowedError': 'Allow camera access in browser settings',
+                'NotFoundError': 'Check if camera exists and is not in use',
+                'NotReadableError': 'Another app might be using the camera',
+                'OverconstrainedError': 'Try different camera constraints',
+                'AbortError': 'Hardware access failed - restart device'
             };
+            return solutions[errorName] || 'Check browser console for details';
+        }
 
-            // Load 3D model (replace with your model)
-            new THREE.GLTFLoader().load(
-                "https://cdn.glitch.global/6d5d7e82-8e4a-407c-ae80-8854a6d5c911/dinosaur.glb",
-                (gltf) => {
-                    model = gltf.scene;
-                    model.visible = false;
-                    model.scale.set(0.5, 0.5, 0.5);
-                    arScene.add(model);
-                }
-            );
-
-            // Start AR
-            await mindarThree.start();
-            
-            // Persistent render loop
-            const animate = () => {
-                requestAnimationFrame(animate);
-                if (!mindarThree.isRunning) {
-                    // Continue rendering after stopping tracker
-                    renderer.render(arScene, camera);
-                }
-            };
-            animate();
-        });
+        // Start AR when safe
+        if (document.readyState === 'complete') {
+            startAR();
+        } else {
+            window.addEventListener('load', startAR);
+        }
     </script>
 </body>
 </html>
