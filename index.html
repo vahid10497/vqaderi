@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR AnchorHack on v1049</title>
+  <title>MindAR Pin &amp; Forget via matrixWorld</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -24,7 +24,7 @@
   >
     <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- Tracker + initial brown box -->
+    <!-- Tracker + live brown box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
@@ -36,56 +36,54 @@
   </a-scene>
 
   <script>
-    (async () => {
-      const sceneEl   = document.getElementById('scene');
-      const trackerEl = document.getElementById('tracker');
-      const liveBox   = document.getElementById('liveBox');
-      let pinned = false;
+  (function(){
+    const sceneEl   = document.getElementById('scene');
+    const trackerEl = document.getElementById('tracker');
+    const liveBox   = document.getElementById('liveBox');
+    let pinned = false;
 
-      trackerEl.addEventListener('targetFound', () => {
-        if (pinned) return;
-        pinned = true;
+    trackerEl.addEventListener('targetFound', () => {
+      if (pinned) return;
+      pinned = true;
 
-        // 1) Immediate feedback: brown→green
-        liveBox.setAttribute('material','color: green;');
+      // 1) feedback
+      liveBox.setAttribute('material','color: green;');
 
-        // 2) HACK: get MindAR's raw anchor matrix (clean meters)
-        const mindarSys = sceneEl.systems.mindarImage;
-        const anchor    = mindarSys.imageTracker.anchorList.get(0);
-        const matArr    = anchor.anchorMatrix;              // Float32Array[16]
-        const mat       = new THREE.Matrix4().fromArray(matArr);
+      // 2) delay one RAF tick so matrixWorld is up-to-date
+      requestAnimationFrame(() => {
+        // 3) grab the box's matrixWorld
+        const worldMatrix = liveBox.object3D.matrixWorld.clone();
 
-        // Decompose into position & quaternion
-        const worldPos  = new THREE.Vector3();
-        const worldQuat = new THREE.Quaternion();
-        const worldScl  = new THREE.Vector3();
-        mat.decompose(worldPos, worldQuat, worldScl);
+        // decompose into pos/quaternion/scale
+        const pos  = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        const scl  = new THREE.Vector3();
+        worldMatrix.decompose(pos, quat, scl);
 
-        // Convert quat → Euler for A-Frame
-        const euler     = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
-        const rx        = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
-        const ry        = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
-        const rz        = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
+        // convert quaternion to Euler for attribute
+        const euler = new THREE.Euler().setFromQuaternion(quat, 'XYZ');
+        const rx = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
+        const ry = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
+        const rz = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
 
-        // 3) Spawn permanent red box at the exact anchor pose
+        // 4) spawn red box at that exact pose
         const redBox = document.createElement('a-box');
         redBox.setAttribute('depth','0.5');
         redBox.setAttribute('height','0.5');
         redBox.setAttribute('width','0.5');
         redBox.setAttribute('material','color: red;');
-        redBox.setAttribute('position',
-          `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
-        );
+        redBox.setAttribute('position', `${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`);
         redBox.setAttribute('rotation', `${rx} ${ry} ${rz}`);
         sceneEl.appendChild(redBox);
 
-        // 4) Delay removal & pause by 3 seconds
+        // 5) after 3s, remove tracker & pause
         setTimeout(async () => {
           if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
           await sceneEl.components['mindar-image'].pause();
         }, 3000);
       });
-    })();
+    });
+  })();
   </script>
 </body>
 </html>
