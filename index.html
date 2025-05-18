@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>MindAR Pin & Forget (RAF Delay)</title>
+  <title>MindAR Pin & Forget (Fixed Local Pos)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -24,7 +24,7 @@
   >
     <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- Tracker + brown live box -->
+    <!-- Tracker + initial brown box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
@@ -46,38 +46,36 @@
         if (pinned) return;
         pinned = true;
 
-        // 1) Immediate feedback
+        // 1) Turn brown → green
         liveBox.setAttribute('material','color: green;');
 
-        // 2) Wait one RAF tick so world matrices are updated
-        requestAnimationFrame(() => {
-          // 3) Read world-space position/quaternion
-          const pos = new THREE.Vector3();
-          const quat = new THREE.Quaternion();
-          liveBox.object3D.getWorldPosition(pos);
-          liveBox.object3D.getWorldQuaternion(quat);
-          console.log('🔍 Pinned pos:', pos);
+        // 2) Compute a small scene-local position for the blue box:
+        //    tracker.object3D.position is in meters relative to camera origin
+        const trackerPos = trackerEl.object3D.position.clone();
+        //    liveBox has a local offset (0, 0.5, 0)
+        const liveOffset = liveBox.object3D.position.clone();
+        const pinPos = trackerPos.add(liveOffset);
+        console.log('📐 Pin position (scene-local):', pinPos);
 
-          // 4) Create blue box at exactly that world pos
-          const blueBox = document.createElement('a-box');
-          blueBox.setAttribute('depth', '0.5');
-          blueBox.setAttribute('height','0.5');
-          blueBox.setAttribute('width', '0.5');
-          blueBox.setAttribute('material','color: blue;');
-          blueBox.setAttribute(
-            'position',
-            `${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`
-          );
-          sceneEl.appendChild(blueBox);
-          console.log('✅ Blue box appended');
+        // 3) Spawn the blue box at pinPos
+        const blueBox = document.createElement('a-box');
+        blueBox.setAttribute('depth', '0.5');
+        blueBox.setAttribute('height','0.5');
+        blueBox.setAttribute('width', '0.5');
+        blueBox.setAttribute('material','color: blue;');
+        blueBox.setAttribute(
+          'position',
+          `${pinPos.x.toFixed(3)} ${pinPos.y.toFixed(3)} ${pinPos.z.toFixed(3)}`
+        );
+        sceneEl.appendChild(blueBox);
+        console.log('✅ Blue box appended at local coords');
 
-          // 5) Cleanup after a short pause
-          setTimeout(async () => {
-            if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
-            await sceneEl.components['mindar-image'].pause();
-            console.log('⏹️ Tracker removed & MindAR paused');
-          }, 1000);
-        });
+        // 4) Delay, then remove tracker & pause
+        setTimeout(async () => {
+          if (trackerEl.parentNode) trackerEl.parentNode.removeChild(trackerEl);
+          await sceneEl.components['mindar-image'].pause();
+          console.log('⏹️ Tracker removed & MindAR paused');
+        }, 3000);
       });
     })();
   </script>
