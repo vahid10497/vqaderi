@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget (Green→Blue)</title>
+  <title>MindAR Pin & Forget (With Debug Text)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -10,8 +10,8 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
-    body,html {margin:0;padding:0;overflow:hidden;width:100%;height:100}
-    a-scene     {width:100%;height:100}
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100% }
+    a-scene     { width:100%; height:100% }
   </style>
 </head>
 <body>
@@ -22,9 +22,19 @@
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: true"
   >
-    <a-camera look-controls="enabled: false"></a-camera>
+    <!-- Camera + Debug Text -->
+    <a-camera look-controls="enabled: false">
+      <a-text
+        id="debugText"
+        value="🔍 Waiting for detection…"
+        position="0 -0.5 -1"
+        align="center"
+        color="white"
+        width="2"
+      ></a-text>
+    </a-camera>
 
-    <!-- Tracker + initial yellow box -->
+    <!-- Tracker + yellow box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
@@ -40,28 +50,36 @@
       const sceneEl   = document.getElementById('scene');
       const trackerEl = document.getElementById('tracker');
       const liveBox   = document.getElementById('liveBox');
+      const debugText = document.getElementById('debugText');
       let pinned = false;
 
       sceneEl.addEventListener('targetFound', async (e) => {
-        if (pinned || e.detail.index !== 0) return;
+        console.log('🎯 scene.targetFound event:', e.detail);
+        debugText.setAttribute('value', `🎯 Detected target ${e.detail.index}`);
+
+        if (pinned || e.detail.index !== 0) {
+          console.log('⚠️ Already pinned or wrong index, skipping.');
+          return;
+        }
         pinned = true;
 
-        // 1) Change the live box to green
+        // 1) Change the live box to green to mark detection
         liveBox.setAttribute('material', 'color: green;');
 
-        // 2) Read world-space pose of the live box
+        // 2) Grab world-space pose
         const worldPos  = new THREE.Vector3();
         const worldQuat = new THREE.Quaternion();
         liveBox.object3D.getWorldPosition(worldPos);
         liveBox.object3D.getWorldQuaternion(worldQuat);
+        console.log('📐 World pose:', worldPos, worldQuat);
 
-        // 3) Create a brand-new blue box with explicit attrs
+        // 3) Create a new blue box with explicit attrs
         const blueBox = document.createElement('a-box');
         blueBox.setAttribute('depth',  '0.5');
         blueBox.setAttribute('height', '0.5');
         blueBox.setAttribute('width',  '0.5');
         blueBox.setAttribute('material','color: blue;');
-        // set position + rotation (Euler degrees) immediately:
+        // set position + rotation immediately
         const euler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
         blueBox.setAttribute('position',
           `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
@@ -72,14 +90,18 @@
           `${THREE.MathUtils.radToDeg(euler.z).toFixed(1)}`
         );
 
-        // 4) Append the blue box to the scene root
+        // 4) Append the blue box to the scene
         sceneEl.appendChild(blueBox);
+        console.log('➕ Blue box appended at pinned location');
+        debugText.setAttribute('value', '✅ Pinned!');
 
-        // 5) Hide and remove the tracker entirely
-        trackerEl.setAttribute('visible', 'false');
+        // 5) Remove the tracker so it can’t hide anything
+        trackerEl.parentNode.removeChild(trackerEl);
+        console.log('🗑️ Tracker removed');
 
-        // 6) Stop MindAR’s image-tracking so nothing else changes
+        // 6) Stop MindAR’s image-tracking so it never clears the view
         await sceneEl.components['mindar-image'].stop();
+        console.log('⏹️ MindAR stopped');
       });
     })();
   </script>
