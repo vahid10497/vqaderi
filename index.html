@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget</title>
+  <title>MindAR Pin & Forget – Structured</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- 1) A-Frame -->
@@ -24,9 +24,10 @@
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: true"
   >
+    <!-- your AR camera -->
     <a-camera look-controls="enabled: false"></a-camera>
 
-    <!-- Tracker + live yellow box -->
+    <!-- Tracker entity + a yellow box that appears only while tracking -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
         id="liveBox"
@@ -44,43 +45,48 @@
       const liveBox   = document.getElementById('liveBox');
       let pinned = false;
 
+      // 1. Initial Image Tracking
       sceneEl.addEventListener('targetFound', async ({ detail }) => {
         if (pinned || detail.index !== 0) return;
         pinned = true;
 
-        // 1) Turn the live box green to mark detection
-        liveBox.setAttribute('material', 'color: green;');
-
-        // 2) Capture world-space pose of the liveBox
+        // 2. Anchor Extraction
+        //    Read world-space transform of the tracker entity:
         const worldPos  = new THREE.Vector3();
         const worldQuat = new THREE.Quaternion();
-        liveBox.object3D.getWorldPosition(worldPos);
-        liveBox.object3D.getWorldQuaternion(worldQuat);
+        trackerEl.object3D.getWorldPosition(worldPos);
+        trackerEl.object3D.getWorldQuaternion(worldQuat);
 
-        // Convert quaternion to Euler for attribute
+        // 3. Placement and Fixing
+        //    - Turn live box green to signal detection:
+        liveBox.setAttribute('material','color: green;');
+
+        //    - Create a fixed red box at the extracted anchor:
+        const redBox = document.createElement('a-box');
+        redBox.setAttribute('depth',  '0.5');
+        redBox.setAttribute('height', '0.5');
+        redBox.setAttribute('width',  '0.5');
+        redBox.setAttribute('material','color: red;');
+        //    - Compute Euler angles from quaternion:
         const euler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
-        const rotX = THREE.MathUtils.radToDeg(euler.x).toFixed(1);
-        const rotY = THREE.MathUtils.radToDeg(euler.y).toFixed(1);
-        const rotZ = THREE.MathUtils.radToDeg(euler.z).toFixed(1);
-
-        // 3) Create and configure the pinned blue box
-        const pinnedBox = document.createElement('a-box');
-        pinnedBox.setAttribute('position',
+        //    - Set position & rotation attributes:
+        redBox.setAttribute(
+          'position',
           `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
         );
-        pinnedBox.setAttribute('rotation', `${rotX} ${rotY} ${rotZ}`);
-        pinnedBox.setAttribute('depth',  '0.5');
-        pinnedBox.setAttribute('height', '0.5');
-        pinnedBox.setAttribute('width',  '0.5');
-        pinnedBox.setAttribute('material', 'color: blue;');
+        redBox.setAttribute(
+          'rotation',
+          `${THREE.MathUtils.radToDeg(euler.x).toFixed(1)} ` +
+          `${THREE.MathUtils.radToDeg(euler.y).toFixed(1)} ` +
+          `${THREE.MathUtils.radToDeg(euler.z).toFixed(1)}`
+        );
+        //    - Append under the scene root:
+        sceneEl.appendChild(redBox);
 
-        // 4) Add the blue box under <a-scene>
-        sceneEl.appendChild(pinnedBox);
-
-        // 5) Remove the original tracker so it never toggles again
+        // 4. No Continuous Tracking
+        //    - Remove the original tracker entity entirely:
         trackerEl.parentNode.removeChild(trackerEl);
-
-        // 6) Pause MindAR’s tracking loop
+        //    - Pause MindAR so it stops clearing or hiding our red box:
         await sceneEl.components['mindar-image'].pause();
       });
     })();
