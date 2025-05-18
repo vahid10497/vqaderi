@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget (Manual)</title>
+  <title>MindAR Pin & Forget w/ Yellow Feedback</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -27,6 +27,7 @@
     <!-- Tracker with the red box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
+        id="model"
         position="0 0.5 0"
         depth="0.5" height="0.5" width="0.5"
         material="color: red;"
@@ -37,38 +38,42 @@
   <script>
     const sceneEl   = document.getElementById('scene');
     const trackerEl = document.getElementById('tracker');
+    const modelEl   = document.getElementById('model');
     let pinned = false;
 
     trackerEl.addEventListener('targetFound', async () => {
       if (pinned) return;
       pinned = true;
 
-      // 1) Read world position & orientation from the tracker
+      // 1) Get world position + rotation of tracker
       const worldPos = new THREE.Vector3();
       const worldQuat = new THREE.Quaternion();
       trackerEl.object3D.getWorldPosition(worldPos);
       trackerEl.object3D.getWorldQuaternion(worldQuat);
 
-      console.log('World pos:', worldPos, 'quat:', worldQuat);
-
-      // 2) Create a new box in the scene root at that world pose
+      // 2) Create a new box at that pose
       const anchorBox = document.createElement('a-box');
       anchorBox.setAttribute('position', `${worldPos.x} ${worldPos.y} ${worldPos.z}`);
-      anchorBox.setAttribute('rotation', `${new THREE.Euler().setFromQuaternion(worldQuat).x * THREE.Math.RAD2DEG} ${new THREE.Euler().setFromQuaternion(worldQuat).y * THREE.Math.RAD2DEG} ${new THREE.Euler().setFromQuaternion(worldQuat).z * THREE.Math.RAD2DEG}`);
+      // convert quaternion to Euler degrees for rotation attribute
+      const euler = new THREE.Euler().setFromQuaternion(worldQuat);
+      anchorBox.setAttribute('rotation',
+        `${THREE.MathUtils.radToDeg(euler.x)} ` +
+        `${THREE.MathUtils.radToDeg(euler.y)} ` +
+        `${THREE.MathUtils.radToDeg(euler.z)}`
+      );
       anchorBox.setAttribute('depth', '0.5');
       anchorBox.setAttribute('height', '0.5');
       anchorBox.setAttribute('width', '0.5');
-      anchorBox.setAttribute('material', 'color: orange;');
+      anchorBox.setAttribute('material', 'color: yellow;'); // yellow to mark pinned
 
       sceneEl.appendChild(anchorBox);
 
-      // 3) Hide the original tracker so it no longer shows/hides
+      // 3) Hide the original red box tracker
+      modelEl.setAttribute('visible', 'false');
       trackerEl.setAttribute('visible', 'false');
 
-      // 4) Stop MindAR tracking entirely
+      // 4) Stop MindAR to prevent any further tracking toggles
       await sceneEl.components['mindar-image'].stop();
-
-      console.log('✅ Pinned new box and stopped tracking.');
     });
   </script>
 </body>
