@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>MindAR Manual Start Example</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="utf-8" />
+  <title>MindAR AnchorHack Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <!-- MindAR.js A-Frame integration -->
@@ -12,13 +12,10 @@
     body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100; background: #000; }
     #startButton {
       position: absolute; top:50%; left:50%;
-      transform: translate(-50%, -50%);
-      padding: 1em 2em;
-      font-size: 1.2em;
-      background: #28a;
-      color: #fff;
-      border: none;
-      border-radius: 0.3em;
+      transform: translate(-50%,-50%);
+      padding: 1em 2em; font-size:1.2em;
+      background:#28a; color:#fff; border:none; border-radius:0.3em;
+      z-index: 2;
     }
     a-scene { display: none; }
   </style>
@@ -27,6 +24,7 @@
   <!-- 1) Manual start button -->
   <button id="startButton">Start AR</button>
 
+  <!-- 2) MindAR scene, but do NOT autoStart -->
   <a-scene
     id="scene"
     mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; debugUIEnabled: true;"
@@ -34,29 +32,66 @@
     device-orientation-permission-ui="enabled: false"
   >
     <a-camera look-controls="enabled: false"></a-camera>
+
+    <!-- This tracker holds the live yellow box -->
     <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-      <a-box position="0 0.5 0" depth="0.5" height="0.5" width="0.5" material="color: yellow;"></a-box>
+      <a-box position="0 0.5 0" depth="0.3" height="0.3" width="0.3" material="color: yellow;"></a-box>
     </a-entity>
   </a-scene>
 
   <script>
+  (async () => {
     const startButton = document.getElementById('startButton');
     const sceneEl     = document.getElementById('scene');
+    const trackerEl   = document.getElementById('tracker');
 
+    // 1) On user tap, start camera & AR
     startButton.addEventListener('click', async () => {
-      // Hide button, show scene
-      startButton.style.display = 'none';
-      sceneEl.style.display = 'block';
-
-      // Trigger the camera permission prompt
       try {
-        await sceneEl.components['mindar-image'].start();
-        console.log('✅ MindAR started, camera should be live.');
-      } catch (err) {
-        console.error('❌ Could not start MindAR:', err);
-        alert('Failed to start camera. Make sure you are on HTTPS and granted permission.');
+        await sceneEl.components['mindar-image'].start();    // user gesture → getUserMedia()
+        startButton.style.display = 'none';
+        sceneEl.style.display    = 'block';
+      } catch (e) {
+        alert('Camera start failed: ' + e.message);
       }
     });
+
+    // 2) When the image is found:
+    sceneEl.addEventListener('targetFound', () => {
+      // Grab the MindAR component & its internal anchor list
+      const mindar = sceneEl.components['mindar-image'];
+      const anchor = mindar.imageTracker.anchorList.get(0);
+      if (!anchor) return;
+
+      // 3) Pull out the raw 4×4 matrix (Float32Array length 16)
+      const matArr = anchor.anchorMatrix;
+      const m = new THREE.Matrix4().fromArray(matArr);
+
+      // 4) Decompose into position + quaternion
+      const pos  = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scale= new THREE.Vector3();
+      m.decompose(pos, quat, scale);
+
+      console.log('📐 Anchor position:', pos);
+      console.log('🌀 Anchor quaternion:', quat);
+
+      // 5) Spawn a blue box at that world pose
+      const box = document.createElement('a-box');
+      box.setAttribute('depth',  '0.3');
+      box.setAttribute('height', '0.3');
+      box.setAttribute('width',  '0.3');
+      box.setAttribute('material','color: blue;');
+      // Apply the exact position & rotation
+      box.object3D.position.copy(pos);
+      box.object3D.quaternion.copy(quat);
+      // Detach from any tracker—append straight to the scene root
+      sceneEl.appendChild(box);
+
+      // 6) (Optional) remove the tracker if you never want to track again
+      // trackerEl.remove();
+    });
+  })();
   </script>
 </body>
 </html>
