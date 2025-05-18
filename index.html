@@ -1,61 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>WebXR Hit-Test + GPS Anchor</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <title>WebXR GPS-Anchored Sphere</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { margin:0; overflow:hidden; font-family: sans-serif; }
-    canvas { width:100%; height:100%; display:block; }
+    body { margin:0; overflow:hidden; }
+    #xr-canvas { width:100%; height:100%; display:block; }
     #message {
-      position: absolute; top: 0; left: 0; width: 100%;
-      background: rgba(0,0,0,0.6); color: white; padding: 1em;
-      text-align: center; z-index: 10;
+      position: absolute; top: 0; width:100%; padding:1em;
+      background:rgba(0,0,0,0.6); color:white; font-family:sans-serif;
+      text-align:center; z-index:1;
     }
   </style>
 </head>
 <body>
-  <div id="message">Initializing AR hit-test…</div>
+  <div id="message">Initializing AR…</div>
   <canvas id="xr-canvas"></canvas>
-
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let scene, camera, renderer;
-    let reticle, controller, sphere;
-    let hitSource;
-    // Your first-floor GPS coords:
-    const targetLat = 48.29002038491218;
-    const targetLon = 14.282757518735202;
-    const floorOffsetM = 3;  // ~3 m above device GPS altitude
+    let camera, scene, renderer;
 
-    // We'll store user GPS when first needed
-    let userLat=0, userLon=0, userAlt=0;
+    // your building’s GPS
+    const buildLat = 48.29002038491218;
+    const buildLon = 14.282757518735202;
+    const floorOffsetM = 3; // meters above user altitude
 
     init();
-
     async function init() {
-      if (!navigator.xr) {
-        showMessage('WebXR unavailable');
-        return;
-      }
-      const supported = await navigator.xr.isSessionSupported('immersive-ar');
-      if (!supported) {
-        showMessage('AR not supported on this device/browser');
+      if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) {
+        document.getElementById('message').textContent =
+          'AR not supported on this device/browser.';
         return;
       }
 
-      // Grab user GPS once
-      navigator.geolocation.getCurrentPosition(p => {
-        userLat = p.coords.latitude;
-        userLon = p.coords.longitude;
-        if (p.coords.altitude !== null) userAlt = p.coords.altitude;
-      }, () => {
-        showMessage('Could not get GPS—check location permissions');
-      });
-
-      // THREE setup
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera();
       renderer = new THREE.WebGLRenderer({
@@ -63,97 +43,60 @@
         alpha: true,
         antialias: true
       });
-      renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
+      renderer.setSize(window.innerWidth, window.innerHeight);
 
-      // Light
-      scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
-
-      // Sphere (hidden until placement)
-      sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3,32,32),
-        new THREE.MeshStandardMaterial({ color: 0x00ccff })
-      );
-      sphere.visible = false;
-      scene.add(sphere);
-
-      // Reticle for hit-test feedback
-      reticle = new THREE.Mesh(
-        new THREE.RingGeometry(0.15,0.2,32).rotateX(-Math.PI/2),
-        new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-      );
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
-
-      // Controller (tap to place)
-      controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onSelect);
-      scene.add(controller);
-
-      // ARButton with hit-test
       document.body.appendChild(
-        ARButton.createButton(renderer, { requiredFeatures: ['hit-test','local-floor'] })
+        ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
       );
 
-      // Once session starts, set up hit-test source and hide message
-      renderer.xr.addEventListener('sessionstart', async () => {
-        showMessage('');
-        const session = renderer.xr.getSession();
-        const viewerSpace = await session.requestReferenceSpace('viewer');
-        hitSource = await session.requestHitTestSource({ space: viewerSpace });
+      renderer.xr.addEventListener('sessionstart', placeSphere);
 
-        renderer.setAnimationLoop(onXRFrame);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+
+      renderer.setAnimationLoop(() => {
+        renderer.render(scene, camera);
       });
     }
 
-    function showMessage(msg) {
-      document.getElementById('message').textContent = msg;
-    }
+    function placeSphere() {
+      document.getElementById('message').style.display = 'none';
 
-    function onXRFrame(time, frame) {
-      const session = renderer.xr.getSession();
-      const refSpace = renderer.xr.getReferenceSpace();
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const userLat = pos.coords.latitude;
+        const userLon = pos.coords.longitude;
+        const userAlt = pos.coords.altitude || 0;
 
-      // Hit-test to update reticle
-      const hits = frame.getHitTestResults(hitSource);
-      if (hits.length) {
-        const pose = hits[0].getPose(refSpace);
-        reticle.visible = true;
-        reticle.matrix.fromArray(pose.transform.matrix);
-      } else {
-        reticle.visible = false;
-      }
+        // compute meters-per-degree
+        const toRad = d => d * Math.PI / 180;
+        const latRad = toRad(userLat);
+        const mPerLat = 111132.92;
+        const mPerLon = 111412.84 * Math.cos(latRad);
 
-      renderer.render(scene, camera);
-    }
+        // ENU offset
+        const dx = (buildLon - userLon) * mPerLon;  // east
+        const dz = (buildLat - userLat) * mPerLat;  // north
+        const dy = floorOffsetM - userAlt;          // up
 
-    function onSelect() {
-      if (!reticle.visible) return;
+        // create sphere
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.3, 32, 32),
+          new THREE.MeshStandardMaterial({ color: 0xff6600 })
+        );
 
-      // Compute ENU offset from user→target
-      const toRad = deg => deg * Math.PI / 180;
-      const latRad = toRad(userLat);
-      const mLat = 111132.92;
-      const mLon = 111412.84 * Math.cos(latRad);
-      const dx = (targetLon - userLon) * mLon;  // east
-      const dz = (targetLat - userLat) * mLat;  // north
-      const dy = floorOffsetM - userAlt;        // up
+        // place at (dx, dy, -dz) in world-space
+        sphere.position.set(dx, dy, -dz);
 
-      // Extract the reticle’s world pose
-      const mat = new THREE.Matrix4().fromArray(reticle.matrix.elements);
-      const pos = new THREE.Vector3().setFromMatrixPosition(mat);
-      const quat = new THREE.Quaternion().setFromRotationMatrix(mat);
+        // orient same as camera (optional)
+        const cam = renderer.xr.getCamera(camera);
+        sphere.quaternion.copy(cam.quaternion);
 
-      // Apply ENU: +X east, -Z north in Three.js
-      pos.x += dx;
-      pos.z -= dz;
-      pos.y += dy;
-
-      // Place and show the sphere
-      sphere.position.copy(pos);
-      sphere.quaternion.copy(quat);
-      sphere.visible = true;
+        scene.add(sphere);
+      }, (err) => {
+        console.error('GPS error', err);
+        document.getElementById('message').textContent =
+          'Could not get GPS position.';
+      });
     }
   </script>
 </body>
