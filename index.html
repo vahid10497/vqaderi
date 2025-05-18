@@ -2,53 +2,38 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>MindAR with Detection Feedback</title>
+    <title>MindAR Minimal Test</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- A-Frame and MindAR -->
+    <!-- 1) A-Frame core -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- 2) MindAR core & A-Frame integration -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-    <!-- Fullscreen fix -->
     <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        height: 100%;
-        width: 100%;
-      }
-      a-scene {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100% !important;
-        height: 100% !important;
-      }
-      canvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-      }
+      body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+      a-scene { width: 100%; height: 100%; }
     </style>
   </head>
-
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
-      color-space="sRGB"
-      renderer="colorManagement: true, physicallyCorrectLights"
-      vr-mode-ui="enabled: false"
+      mindar-image="
+        imageTargetSrc: ./targets.mind;
+        autoStart: true;
+      "
       device-orientation-permission-ui="enabled: true"
       debugUIEnabled="true"
+      vr-mode-ui="enabled: false"
     >
-      <!-- Assets -->
-      <a-assets>
-        <a-asset-item id="model" src="https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models/2.0/Avocado/glTF/Avocado.gltf"></a-asset-item>
-      </a-assets>
-
-      <!-- Camera -->
+      <!-- camera -->
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- Tracker -->
-      <a-entity
+      <!-- on-target content: a red box -->
+      <a-box mindar-image-target="targetIndex: 0"
+             position="0 0 0.5"
+             material="color: red;">
+      </a-box>
+    </a-scene>
+  </body>
+</html>
