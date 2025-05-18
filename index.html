@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MindAR Pin & Forget (Scene Event)</title>
+  <title>MindAR Pin & Forget (Manual)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <!-- MindAR.js -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-
-  <style>body,html{margin:0;padding:0;overflow:hidden;width:100%;height:100%}a-scene{width:100%;height:100%}</style>
+  <style>
+    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100% }
+    a-scene { width:100%; height:100% }
+  </style>
 </head>
 <body>
   <a-scene
@@ -22,10 +23,10 @@
     device-orientation-permission-ui="enabled: true"
   >
     <a-camera look-controls="enabled: false"></a-camera>
+
     <!-- Tracker with the red box -->
-    <a-entity id="tracker" mindar-image-target="targetIndex: 0" visible="true">
+    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
       <a-box
-        id="model"
         position="0 0.5 0"
         depth="0.5" height="0.5" width="0.5"
         material="color: red;"
@@ -36,44 +37,38 @@
   <script>
     const sceneEl   = document.getElementById('scene');
     const trackerEl = document.getElementById('tracker');
-    const modelEl   = document.getElementById('model');
     let pinned = false;
 
-    console.log('▶️ Waiting for scene.targetFound…');
-    sceneEl.addEventListener('targetFound', (e) => {
-      console.log('🔍 scene.targetFound', e.detail);
-      if (pinned || e.detail.index !== 0) {
-        console.log('⚠️ Already pinned or wrong target');
-        return;
-      }
+    trackerEl.addEventListener('targetFound', async () => {
+      if (pinned) return;
       pinned = true;
 
-      // 1) Capture world matrix
-      const worldMatrix = trackerEl.object3D.matrixWorld.clone();
-      console.log('📐 worldMatrix captured', worldMatrix);
+      // 1) Read world position & orientation from the tracker
+      const worldPos = new THREE.Vector3();
+      const worldQuat = new THREE.Quaternion();
+      trackerEl.object3D.getWorldPosition(worldPos);
+      trackerEl.object3D.getWorldQuaternion(worldQuat);
 
-      // 2) Build anchor + clone
-      const anchor = document.createElement('a-entity');
-      const clone  = modelEl.cloneNode(true);
-      anchor.appendChild(clone);
-      console.log('✂️ Cloned model');
+      console.log('World pos:', worldPos, 'quat:', worldQuat);
 
-      // 3) Apply matrix to anchor
-      anchor.object3D.matrix.copy(worldMatrix);
-      anchor.object3D.matrix.decompose(
-        anchor.object3D.position,
-        anchor.object3D.quaternion,
-        anchor.object3D.scale
-      );
-      console.log('🔧 Anchor transform set', anchor.object3D.position);
+      // 2) Create a new box in the scene root at that world pose
+      const anchorBox = document.createElement('a-box');
+      anchorBox.setAttribute('position', `${worldPos.x} ${worldPos.y} ${worldPos.z}`);
+      anchorBox.setAttribute('rotation', `${new THREE.Euler().setFromQuaternion(worldQuat).x * THREE.Math.RAD2DEG} ${new THREE.Euler().setFromQuaternion(worldQuat).y * THREE.Math.RAD2DEG} ${new THREE.Euler().setFromQuaternion(worldQuat).z * THREE.Math.RAD2DEG}`);
+      anchorBox.setAttribute('depth', '0.5');
+      anchorBox.setAttribute('height', '0.5');
+      anchorBox.setAttribute('width', '0.5');
+      anchorBox.setAttribute('material', 'color: orange;');
 
-      // 4) Append to scene
-      sceneEl.appendChild(anchor);
-      console.log('➕ Anchor appended');
+      sceneEl.appendChild(anchorBox);
 
-      // 5) Hide tracker
+      // 3) Hide the original tracker so it no longer shows/hides
       trackerEl.setAttribute('visible', 'false');
-      console.log('🙈 Tracker hidden');
+
+      // 4) Stop MindAR tracking entirely
+      await sceneEl.components['mindar-image'].stop();
+
+      console.log('✅ Pinned new box and stopped tracking.');
     });
   </script>
 </body>
