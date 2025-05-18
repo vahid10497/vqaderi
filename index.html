@@ -1,127 +1,52 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>WebXR GPS-Anchored Sphere (Fixed Prompt Order)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { margin:0; overflow:hidden; }
-    #xr-canvas { width:100%; height:100%; display:block; }
-    #message {
-      position: absolute; top: 0; width:100%; padding:1em;
-      background:rgba(0,0,0,0.6); color:white; font-family:sans-serif;
-      text-align:center; z-index:1;
-    }
-    #startBtn {
-      position: absolute; bottom:20px; left:50%; transform:translateX(-50%);
-      padding:12px 24px; font-size:16px;
-      background: #007AFF; color: white; border: none; border-radius: 6px;
-      z-index:1;
-    }
-  </style>
-</head>
-<body>
-  <div id="message">Initializing…</div>
-  <button id="startBtn">Start AR</button>
-  <canvas id="xr-canvas"></canvas>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AR.js GPS Debug & Sphere</title>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- AR.js with GPS support -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <style>
+      body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <a-scene
+      embedded
+      vr-mode-ui="enabled: false"
+      arjs="
+        sourceType: webcam;
+        debugUIEnabled: true;      /* show the little GPS/FPS info */
+        gpsMinDistance: 0;         /* update every move */
+        gpsMinAccuracy: 100;       /* only if accuracy < 100 m */
+      "
+    >
 
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+      <!-- Camera with GPS component -->
+      <a-camera
+        gps-camera="minDistance: 0; minUpdateTime: 1000;"
+        rotation-reader
+      ></a-camera>
 
-    // Building GPS + floor height
-    const buildLat = 48.29002038491218;
-    const buildLon = 14.282757518735202;
-    const floorOffsetM = 3;
+      <!-- Sphere anchored at your building coords + 3 m up -->
+      <a-sphere
+        radius="1"
+        color="#FF6600"
+        gps-entity-place="latitude: 48.29002038491218; longitude: 14.282757518735202;"
+        position="0 3 0"
+        look-at="[gps-camera]"
+      ></a-sphere>
 
-    let camera, scene, renderer;
-    let userLat, userLon, userAlt;
-
-    // Entry point: wait for user to tap "Start AR"
-    document.getElementById('startBtn').addEventListener('click', async () => {
-      document.getElementById('message').textContent = 'Requesting location…';
-      document.getElementById('startBtn').style.display = 'none';
-
-      // 1) Ask for geolocation first
-      navigator.geolocation.getCurrentPosition(pos => {
-        userLat = pos.coords.latitude;
-        userLon = pos.coords.longitude;
-        userAlt = pos.coords.altitude || 0;
-        initAR();   // then initialize AR
-      }, err => {
-        document.getElementById('message').textContent =
-          'Location denied or unavailable.';
-        console.error(err);
-      });
-    });
-
-    async function initAR() {
-      document.getElementById('message').textContent = 'Checking AR support…';
-
-      // 2) WebXR feature check
-      if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) {
-        document.getElementById('message').textContent =
-          'AR not supported on this device/browser.';
-        return;
-      }
-
-      // 3) Three.js + WebXR boilerplate
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('xr-canvas'),
-        alpha: true,
-        antialias: true
-      });
-      renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-
-      // 4) Add ARButton (camera prompt happens here)
-      document.body.appendChild(
-        ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
-      );
-
-      // 5) On AR session start, place the sphere
-      renderer.xr.addEventListener('sessionstart', placeSphere);
-
-      // 6) Lighting
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
-
-      // 7) Render loop
-      renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
-      });
-
-      document.getElementById('message').style.display = 'none';
-    }
-
-    function placeSphere() {
-      // 8) Compute ENU offset between user and building
-      const toRad = d => d * Math.PI / 180;
-      const latRad = toRad(userLat);
-      const metersPerLat = 111132.92;
-      const metersPerLon = 111412.84 * Math.cos(latRad);
-
-      const dx = (buildLon - userLon) * metersPerLon;  // east
-      const dz = (buildLat - userLat) * metersPerLat;  // north
-      const dy = floorOffsetM - userAlt;               // up
-
-      // 9) Create the sphere
-      const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3, 32, 32),
-        new THREE.MeshStandardMaterial({ color: 0xff6600 })
-      );
-
-      // 10) Position it at the ENU offset in world-space
-      sphere.position.set(dx, dy, -dz);
-
-      // 11) Optionally orient it to face the user
-      const cam = renderer.xr.getCamera(camera);
-      sphere.quaternion.copy(cam.quaternion);
-
-      // 12) Add it once to the scene (it stays pinned)
-      scene.add(sphere);
-    }
-  </script>
-</body>
+      <!-- (Optional) Log every GPS update to console -->
+      <script>
+        window.addEventListener('gps-camera-update-position', e => {
+          console.log(
+            `GPS Update → lat: ${e.detail.position.latitude.toFixed(6)}, ` +
+            `lon: ${e.detail.position.longitude.toFixed(6)}, ` +
+            `acc: ${e.detail.position.accuracy.toFixed(1)}m`
+          );
+        });
+      </script>
+    </a-scene>
+  </body>
 </html>
