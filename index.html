@@ -1,88 +1,118 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8"/>
-  <title>MindAR Pin & Forget with Delay</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <!-- A-Frame -->
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- MindAR.js A-Frame integration -->
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <meta charset="utf-8">
+  <title>MindAR - Anchor Content After Tracking</title>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.0/dist/mindar-image-three.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.min.js"></script>
   <style>
-    body, html { margin:0; padding:0; overflow:hidden; width:100%; height:100 }
-    a-scene     { width:100%; height:100 }
+    body { margin: 0; overflow: hidden; }
+    #ar-container { position: relative; width: 100vw; height: 100vh; }
+    #scanning-overlay {
+      position: absolute; 
+      top: 0; left: 0; 
+      width: 100%; height: 100%; 
+      background: rgba(0,0,0,0.5); 
+      color: white; 
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+    }
   </style>
 </head>
 <body>
-  <a-scene
-    id="scene"
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
-    debugUIEnabled="true"
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: true"
-  >
-    <a-camera look-controls="enabled: false"></a-camera>
-
-    <!-- Tracker + initial yellow box -->
-    <a-entity id="tracker" mindar-image-target="targetIndex: 0">
-      <a-box
-        id="liveBox"
-        position="0 0.5 0"
-        rotation="0 0 0"
-        depth="0.5" height="0.5" width="0.5"
-        material="color: yellow;"
-      ></a-box>
-    </a-entity>
-  </a-scene>
+  <div id="ar-container">
+    <div id="scanning-overlay">Point camera at the target image</div>
+    <canvas id="ar-canvas"></canvas>
+  </div>
 
   <script>
-  (function(){
-    const sceneEl   = document.getElementById('scene');
-    const trackerEl = document.getElementById('tracker');
-    const liveBox   = document.getElementById('liveBox');
-    let pinned = false;
+    document.addEventListener('DOMContentLoaded', () => {
+      let anchor = null;
+      let model = null;
+      let scene = null;
+      let stoppedTracking = false;
 
-    trackerEl.addEventListener('targetFound', () => {
-      if (pinned) return;
-      pinned = true;
-
-      // 1) Flip yellow → green
-      liveBox.setAttribute('material','color: green;');
-
-      // 2) Wait one frame for MindAR to update transforms
-      requestAnimationFrame(() => {
-        // 3) Capture world‐space pose
-        const worldPos  = new THREE.Vector3();
-        const worldQuat = new THREE.Quaternion();
-        liveBox.object3D.getWorldPosition(worldPos);
-        liveBox.object3D.getWorldQuaternion(worldQuat);
-
-        // 4) Reparent to scene root
-        sceneEl.appendChild(liveBox);
-
-        // 5) Reapply exact pose as local attributes
-        const worldEuler = new THREE.Euler().setFromQuaternion(worldQuat, 'XYZ');
-        liveBox.setAttribute(
-          'position',
-          `${worldPos.x.toFixed(3)} ${worldPos.y.toFixed(3)} ${worldPos.z.toFixed(3)}`
-        );
-        liveBox.setAttribute(
-          'rotation',
-          `${THREE.MathUtils.radToDeg(worldEuler.x).toFixed(1)} ` +
-          `${THREE.MathUtils.radToDeg(worldEuler.y).toFixed(1)} ` +
-          `${THREE.MathUtils.radToDeg(worldEuler.z).toFixed(1)}`
-        );
-
-        console.log('✅ Box pinned in world-space; will detach tracker in 2s.');
-
-        // 6) After 2s, remove the tracker entity
-        setTimeout(() => {
-          trackerEl.remove();
-          console.log('🗑️ Tracker removed; green box remains and AR feed continues.');
-        }, 2000);
+      // Initialize MindAR with .mind file
+      const mindarThree = new MindARThree({
+        container: document.getElementById("ar-container"),
+        imageTargetSrc: "./targets.mind", // Path to your compiled .mind file
       });
+
+      const { renderer, scene: arScene, camera } = mindarThree;
+
+      // Create a Three.js scene for virtual content
+      scene = new THREE.Scene();
+
+      // Add lighting
+      const light = new THREE.AmbientLight(0xffffff, 1);
+      scene.add(light);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(1, 1, 1);
+      scene.add(directionalLight);
+
+      // Load 3D model (replace with your model)
+      const loader = new THREE.GLTFLoader();
+      loader.load(
+        "https://example.com/your-model.glb", // REPLACE WITH YOUR MODEL
+        (gltf) => {
+          model = gltf.scene;
+          model.visible = false; // Hide until anchor is found
+          scene.add(model);
+        }
+      );
+
+      // Start AR
+      mindarThree.start().then(() => {
+        console.log("AR started");
+      });
+
+      // Update loop
+      const update = () => {
+        if (stoppedTracking) {
+          // If tracking stopped, render scene normally
+          renderer.render(scene, camera);
+        } else {
+          // Otherwise, render AR scene
+          mindarThree.update();
+          renderer.render(arScene, camera);
+        }
+        requestAnimationFrame(update);
+      };
+      update();
+
+      // Detect when target is found
+      mindarThree.onTargetFound = () => {
+        console.log("Target found!");
+        document.getElementById("scanning-overlay").style.display = "none";
+
+        // Get the anchor (position/orientation of the image)
+        const anchorGroup = mindarThree.getAnchorGroup(0); // 0 = first target
+        anchor = anchorGroup.position.clone(); // Store anchor position
+
+        if (model) {
+          // Position model at anchor
+          model.position.copy(anchor);
+          model.visible = true;
+
+          // Optional: Stop tracking after 3 seconds
+          setTimeout(() => {
+            mindarThree.stop();
+            stoppedTracking = true;
+            console.log("Tracking stopped - object stays in place");
+          }, 3000);
+        }
+      };
+
+      // Reset if target lost (optional)
+      mindarThree.onTargetLost = () => {
+        if (!stoppedTracking) {
+          document.getElementById("scanning-overlay").style.display = "flex";
+        }
+      };
     });
-  })();
   </script>
 </body>
 </html>
