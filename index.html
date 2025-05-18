@@ -1,133 +1,109 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MindAR Anchor Demo</title>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
-  <style>
-    body { 
-      margin: 0;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-    }
-    #container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-    }
-    #status {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 10px;
-      border-radius: 5px;
-      z-index: 100;
-    }
-    #debug {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.7);
-      color: #0f0;
-      padding: 10px;
-      font-family: monospace;
-      font-size: 12px;
-    }
-  </style>
+    <meta charset="utf-8">
+    <title>Persistent AR Anchor</title>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #ar-container { width: 100vw; height: 100vh; position: relative; }
+        #status {
+            position: absolute; 
+            top: 10px; left: 10px;
+            background: rgba(0,0,0,0.7); 
+            color: white;
+            padding: 10px;
+            font-family: Arial;
+            z-index: 100;
+        }
+    </style>
 </head>
 <body>
-  <div id="container">
-    <div id="status">Initializing...</div>
-    <div id="debug"></div>
-  </div>
+    <div id="ar-container">
+        <div id="status">Scan target image to place anchor</div>
+        <canvas id="ar-canvas"></canvas>
+    </div>
 
-  <script>
-    (async () => {
-      const statusEl = document.getElementById('status');
-      const debugEl = document.getElementById('debug');
-      
-      // Debug logger
-      const log = (msg) => {
-        debugEl.textContent += `${new Date().toLocaleTimeString()}: ${msg}\n`;
-        console.log(msg);
-      };
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            let worldAnchor = null;
+            let model = null;
+            let arScene = null;
+            let renderer = null;
 
-      try {
-        // Phase 1: Camera Test
-        statusEl.textContent = "Checking camera access...";
-        log("Testing camera permissions");
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
+            // ======================
+            // 1. INITIAL IMAGE TRACKING
+            // ======================
+            const mindarThree = new MindARThree({
+                container: document.querySelector("#ar-container"),
+                imageTargetSrc: "./targets.mind", // Your compiled target
+                maxTrack: 1,
+                uiScanning: "yes"
+            });
+
+            const { scene, camera, renderer: arRenderer } = mindarThree;
+            renderer = arRenderer;
+            arScene = scene;
+
+            // ======================
+            // 2. ANCHOR EXTRACTION
+            // ======================
+            mindarThree.onTargetFound = () => {
+                document.getElementById("status").textContent = "Anchor captured!";
+                
+                // Get anchor position/orientation
+                const anchorGroup = mindarThree.getAnchorGroup(0);
+                worldAnchor = {
+                    position: anchorGroup.position.clone(),
+                    quaternion: anchorGroup.quaternion.clone(),
+                    scale: anchorGroup.scale.clone()
+                };
+
+                // ======================
+                // 3. VIRTUAL CONTENT PLACEMENT
+                // ======================
+                if (model) {
+                    model.position.copy(worldAnchor.position);
+                    model.quaternion.copy(worldAnchor.quaternion);
+                    model.scale.copy(worldAnchor.scale);
+                    model.visible = true;
+                }
+
+                // ======================
+                // 4. STOP TRACKING
+                // ======================
+                setTimeout(() => {
+                    mindarThree.stop();
+                    document.getElementById("status").textContent = "Anchor locked - tracker disabled";
+                }, 1000);
+            };
+
+            // Load 3D model (replace with your model)
+            new THREE.GLTFLoader().load(
+                "https://cdn.glitch.global/6d5d7e82-8e4a-407c-ae80-8854a6d5c911/dinosaur.glb",
+                (gltf) => {
+                    model = gltf.scene;
+                    model.visible = false;
+                    model.scale.set(0.5, 0.5, 0.5);
+                    arScene.add(model);
+                }
+            );
+
+            // Start AR
+            await mindarThree.start();
+            
+            // Persistent render loop
+            const animate = () => {
+                requestAnimationFrame(animate);
+                if (!mindarThree.isRunning) {
+                    // Continue rendering after stopping tracker
+                    renderer.render(arScene, camera);
+                }
+            };
+            animate();
         });
-        stream.getTracks().forEach(track => track.stop());
-        log("Camera access granted");
-
-        // Phase 2: MindAR Init
-        statusEl.textContent = "Loading AR engine...";
-        log("Initializing MindAR");
-        
-        const mindarThree = new MindARThree({
-          container: document.getElementById('container'),
-          imageTargetSrc: './targets.mind', // Updated path
-          maxTrack: 1,
-          uiLoading: 'yes',
-          uiScanning: 'yes',
-        });
-
-        const { renderer, scene, camera } = mindarThree;
-        
-        // Phase 3: Simple 3D Object
-        const geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-        const cube = new THREE.Mesh(geometry, material);
-        cube.visible = false;
-        scene.add(cube);
-
-        // Phase 4: Start AR
-        statusEl.textContent = "Starting AR...";
-        log("Beginning AR session");
-        await mindarThree.start();
-        renderer.setAnimationLoop(() => {
-          mindarThree.update();
-          renderer.render(scene, camera);
-        });
-        statusEl.textContent = "Scan target image!";
-        log("AR session active");
-
-        // Tracking Events
-        mindarThree.onTargetFound = () => {
-          cube.visible = true;
-          statusEl.textContent = "Target found!";
-          log("Target detected");
-        };
-
-        mindarThree.onTargetLost = () => {
-          cube.visible = false;
-          statusEl.textContent = "Target lost";
-          log("Target lost");
-        };
-
-      } catch (err) {
-        statusEl.textContent = `ERROR: ${err.message}`;
-        log(`FATAL: ${err.stack}`);
-        console.error(err);
-        
-        // User-friendly error messages
-        if (err.name === 'NotAllowedError') {
-          statusEl.innerHTML += "<br>Please allow camera access and refresh";
-        } else if (err.message.includes('targets.mind')) {
-          statusEl.innerHTML += "<br>Missing targets.mind file in repo root";
-        }
-      }
-    })();
-  </script>
+    </script>
 </body>
 </html>
