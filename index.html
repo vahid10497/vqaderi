@@ -1,1 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebXR Auto-Place Sphere</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { margin:0; overflow:hidden; }
+    #xr-canvas { width:100%; height:100%; display:block; }
+    #message {
+      position: absolute; top: 10px; width:100%; text-align:center;
+      color: #fff; font-family:sans-serif; z-index:1;
+      background:rgba(0,0,0,0.6); padding:0.5em;
+    }
+  </style>
+</head>
+<body>
+  <div id="message">Initializing AR…</div>
+  <canvas id="xr-canvas"></canvas>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+
+    let camera, scene, renderer;
+
+    init();
+    async function init() {
+      // 1) Check for WebXR AR support
+      if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) {
+        document.getElementById('message').textContent =
+          'AR not supported on this device/browser.';
+        return;
+      }
+
+      // 2) Three.js scene setup
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera();
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('xr-canvas'),
+        alpha: true,
+        antialias: true
+      });
+      renderer.xr.enabled = true;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // 3) Add ARButton
+      document.body.appendChild(
+        ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
+      );
+
+      // 4) Light
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+
+      // 5) On session start, place the sphere
+      renderer.xr.addEventListener('sessionstart', placeSphere);
+
+      // 6) Render loop
+      renderer.setAnimationLoop(() => {
+        renderer.render(scene, camera);
+      });
+    }
+
+    function placeSphere() {
+      document.getElementById('message').style.display = 'none';
+
+      // Create an orange sphere
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 32, 32),
+        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+      );
+
+      // Compute position 2m in front of camera
+      const cam = renderer.xr.getCamera(camera);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+      const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
+
+      sphere.position.copy(pos);
+      sphere.quaternion.copy(cam.quaternion);
+
+      // Add to scene
+      scene.add(sphere);
+    }
+  </script>
+</body>
+</html>
 
