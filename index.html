@@ -1,44 +1,69 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>WebXR Image Tracking Sphere</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"/>
+  <title>WebXR Image-Tracking Pin & Forget</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
-    body { margin:0; overflow:hidden; }
-    canvas { width:100%; height:100%; display:block; }
+    body { margin:0; overflow:hidden; font-family:sans-serif; }
+    #start {
+      position:absolute; top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      padding:1em 2em; font-size:1.2em;
+      background:#28a; color:#fff; border:none; border-radius:4px;
+      z-index:2;
+    }
     #message {
       position:absolute; top:10px; width:100%; text-align:center;
-      color:white; font-family:sans-serif; z-index:1;
-      background:rgba(0,0,0,0.5); padding:0.5em;
+      color:#fff; background:rgba(0,0,0,0.6); padding:0.5em;
+      z-index:2;
     }
+    #xr-canvas { width:100%; height:100%; display:block; }
   </style>
 </head>
 <body>
-  <div id="message">Tap Enter AR, then point at your marker image</div>
+  <button id="start">Start AR</button>
+  <div id="message">🔍 Waiting to start AR…</div>
   <canvas id="xr-canvas"></canvas>
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let renderer, scene, camera, sphere;
-    let xrRefSpace;
-    let pinned = false;
+    const startButton = document.getElementById('start');
+    const message     = document.getElementById('message');
+    const canvas      = document.getElementById('xr-canvas');
+    let renderer, scene, camera, sphere, xrRefSpace, pinned = false;
 
-    init();
-    async function init() {
-      // 1) Three.js & XR setup
+    startButton.addEventListener('click', async () => {
+      startButton.style.display = 'none';
+      message.textContent = '🚀 Initializing AR…';
+
+      if ( !navigator.xr ) {
+        message.textContent = '❌ WebXR not available';
+        return;
+      }
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        message.textContent = '❌ AR not supported';
+        return;
+      }
+
+      // Load marker image
+      const markerImg = new Image();
+      markerImg.src = './marker.png';
+      await markerImg.decode();
+
+      // Three.js setup
       scene    = new THREE.Scene();
       camera   = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
-      renderer.xr.enabled = true;
+      renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
 
       // Light
       scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-      // Sphere (hidden until we track)
+      // Sphere (initially hidden)
       sphere = new THREE.Mesh(
         new THREE.SphereGeometry(0.1, 32, 16),
         new THREE.MeshStandardMaterial({ color: 0xff6600 })
@@ -46,54 +71,41 @@
       sphere.visible = false;
       scene.add(sphere);
 
-      // 2) Load marker image
-      const img = new Image();
-      img.src = './marker.png';       // place marker.png in your root
-      await img.decode();
-
-      // 3) ARButton with image-tracking
-      document.body.appendChild( ARButton.createButton(renderer, {
+      // Request AR session with image-tracking
+      const session = await navigator.xr.requestSession('immersive-ar', {
         requiredFeatures: ['local-floor','image-tracking'],
-        trackedImages:    [{ image: img, widthInMeters: 0.2 }]
-      }));
-
-      // 4) When session starts, grab reference space
-      renderer.xr.addEventListener('sessionstart', async () => {
-        xrRefSpace = await renderer.xr.getSession().requestReferenceSpace('local-floor');
-        document.getElementById('message').innerText = '🔍 Looking for marker…';
+        trackedImages:    [{ image: markerImg, widthInMeters: 0.2 }]
       });
+      renderer.xr.setSession(session);
 
-      // 5) Render loop
+      xrRefSpace = await session.requestReferenceSpace('local-floor');
+      message.textContent = '🔍 Point at marker.png';
+
+      // Render loop
       renderer.setAnimationLoop((time, frame) => {
         if (frame) {
-          // get image-tracking results
           const results = frame.getImageTrackingResults();
           for (const result of results) {
             if (result.trackingState === 'tracked') {
-              // first time we see it, show the sphere
+              // show and pin sphere
               sphere.visible = true;
-              document.getElementById('message').innerText = '✅ Marker found!';
+              message.textContent = '✅ Marker tracked — sphere pinned';
 
-              // get image pose in world-space
               const pose = frame.getPose(result.imageSpace, xrRefSpace);
               if (pose) {
-                // apply the 4x4 matrix
                 sphere.matrix.fromArray(pose.transform.matrix);
                 sphere.matrix.decompose(sphere.position, sphere.quaternion, sphere.scale);
                 sphere.matrixAutoUpdate = false;
-                pinned = true;  // remember we’ve tracked at least once
+                pinned = true;
               }
             }
           }
-          // once pinned, we simply stop updating .matrix,
-          // so the sphere stays where it last was
-          if (pinned) {
-            document.getElementById('message').innerText = '🔒 Sphere pinned; remove marker';
-          }
+          // once pinned, we no longer update its matrix,
+          // so it stays at the last tracked location
         }
         renderer.render(scene, camera);
       });
-    }
+    });
   </script>
 </body>
 </html>
