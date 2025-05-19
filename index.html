@@ -1,137 +1,29 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>WebXR Geo ↔️ Auto‐Place Fallback</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <style>
-    body { margin:0; overflow:hidden; font-family:sans-serif; }
-    #xr-canvas { width:100%; height:100%; display:block; }
-    #message {
-      position:absolute; top:10px; width:100%; text-align:center;
-      padding:0.5em; background:rgba(0,0,0,0.6); color:white; z-index:2;
-    }
-  </style>
-</head>
-<body>
-  <div id="message">Initializing AR…</div>
-  <canvas id="xr-canvas"></canvas>
+<html>
+<head><meta charset="utf-8"/><title>ARButton Test</title></head>
+<body style="margin:0;overflow:hidden;">
+<script type="module">
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+  import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+  // 1) Setup renderer
+  const renderer = new THREE.WebGLRenderer({ alpha:true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
 
-    // Your target GPS (first floor, approx. altitude 0)
-    const TARGET = { lat:48.28995741371078, lon:14.282806287239909, alt:0 };
+  // 2) Simple scene
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-    let scene, camera, renderer;
-    let xrGeoSpace, sphere, pinned=false;
+  // 3) ARButton (no image‐tracking, no geospatial)
+  document.body.appendChild(
+    ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
+  );
 
-    init();
-    async function init() {
-      document.getElementById('message').textContent = 'Checking AR support…';
-      if (!navigator.xr) {
-        return fail('WebXR not available');
-      }
-      if (!await navigator.xr.isSessionSupported('immersive-ar')) {
-        return fail('AR not supported');
-      }
-
-      // Three.js basics
-      scene    = new THREE.Scene();
-      camera   = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
-      renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
-      sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 32, 16),
-        new THREE.MeshStandardMaterial({ color: 0xff6600 })
-      );
-      sphere.visible = false;
-      scene.add(sphere);
-
-      // Try Geospatial first
-      const geoSupported = await navigator.xr.isSessionSupported('immersive-ar', { requiredFeatures:['geospatial'] })
-        .catch(()=>false);
-
-      let features, onSessionStart;
-      if (geoSupported) {
-        features = ['local-floor','geospatial'];
-        onSessionStart = async () => {
-          xrGeoSpace = await renderer.xr.getSession().requestReferenceSpace('geospatial');
-          document.getElementById('message').textContent = 'Geospatial AR active';
-        };
-      } else {
-        // fallback to auto‐place
-        features = ['local-floor'];
-        onSessionStart = () => {
-          document.getElementById('message').textContent = 'Auto‐place AR active';
-          placeAutoSphere();
-        };
-      }
-
-      // Create button
-      document.body.appendChild( ARButton.createButton(renderer, { requiredFeatures: features }) );
-      renderer.xr.addEventListener('sessionstart', onSessionStart);
-      renderer.setAnimationLoop(render);
-    }
-
-    function fail(msg) {
-      document.getElementById('message').textContent = `❌ ${msg}`;
-    }
-
-    function render(time, frame) {
-      if (frame && renderer.xr.isPresenting) {
-        if (xrGeoSpace) {
-          // Geospatial loop
-          const pose = frame.getViewerPose(xrGeoSpace);
-          const gp   = pose?.geospatialPose;
-          if (gp && gp.accuracy.horizontal < 20) {
-            document.getElementById('message').textContent = '🔒 Geo‐anchored';
-            // Simple ENU conversion
-            const { x,y,z } = gpsToENU(
-              TARGET.lat, TARGET.lon, TARGET.alt,
-              gp.latitude, gp.longitude, gp.altitude
-            );
-            sphere.position.set(x,y,z);
-            sphere.visible = true;
-            if (!pinned) {
-              // orient north-up
-              sphere.setRotationFromEuler(new THREE.Euler(0, THREE.MathUtils.degToRad(gp.heading||0), 0));
-              pinned = true;
-            }
-          } else {
-            document.getElementById('message').textContent = gp
-              ? `Waiting for GPS fix (${gp.accuracy.horizontal.toFixed(1)} m)`
-              : 'Waiting for geospatial pose…';
-          }
-        }
-        renderer.render(scene, camera);
-      }
-    }
-
-    // Auto‐place 2 m in front
-    function placeAutoSphere() {
-      const cam = renderer.xr.getCamera(camera);
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-      const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
-      sphere.position.copy(pos);
-      sphere.quaternion.copy(cam.quaternion);
-      sphere.visible = true;
-      document.getElementById('message').textContent = '🔸 Auto‐placed sphere';
-    }
-
-    // Rough WGS84→ENU for small distances
-    function gpsToENU(lat,lon,alt, rLat,rLon,rAlt) {
-      const toRad = v => v*Math.PI/180;
-      const R = 6378137;
-      const dLat = toRad(lat-rLat), dLon = toRad(lon-rLon);
-      const east  = dLon * R * Math.cos(toRad(rLat));
-      const north = dLat * R;
-      const up    = alt - rAlt;
-      return { x:east, y:up, z:-north };
-    }
-  </script>
+  // 4) Render loop
+  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+</script>
 </body>
 </html>
