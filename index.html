@@ -1,16 +1,161 @@
-(async () => {
-  if (!navigator.xr) {
-    console.log("❌ WebXR not available at all");
-    return;
-  }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>WebXR Image-Tracking Support Checker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #status {
+      position: absolute;
+      top: 0; left: 0;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      font-family: sans-serif;
+      padding: 0.5em;
+      z-index: 2;
+    }
+    canvas { width:100%; height:100%; display: block; }
+  </style>
+</head>
+<body>
+  <div id="status">Initializing…</div>
+  <canvas id="xr-canvas"></canvas>
 
-  // First check if AR sessions in general are supported
-  const arOK = await navigator.xr.isSessionSupported('immersive-ar');
-  console.log("WebXR AR supported?", arOK);
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-  // Now check specifically for image-tracking
-  const imageOK = await navigator.xr.isSessionSupported('immersive-ar', {
-    requiredFeatures: ['image-tracking']
-  });
-  console.log("WebXR Image Tracking supported?", imageOK);
-})();
+    const statusEl = document.getElementById('status');
+    let renderer, scene, camera;
+
+    (async function main(){
+      // 1) Check WebXR availability
+      if (!navigator.xr) {
+        return setStatus('WebXR: NOT available');
+      }
+      setStatus('WebXR: available');
+
+      // 2) Check basic AR support
+      const arOK = await navigator.xr.isSessionSupported('immersive-ar');
+      setStatus(`AR supported: ${arOK ? 'yes' : 'no'}`);
+      if (!arOK) return;
+
+      // 3) Check Image-Tracking support
+      let imgOK = false;
+      try {
+        imgOK = await navigator.xr.isSessionSupported('immersive-ar', {
+          requiredFeatures: ['image-tracking']
+        });
+      } catch {}
+      setStatus(`Image Tracking supported: ${imgOK ? 'yes' : 'no'}`);
+
+      // 4) If using image-tracking, load your marker
+      let trackedImages;
+      if (imgOK) {
+        setStatus('Loading marker.png…');
+        try {
+          const img = new Image();
+          img.src = './marker.png';
+          await img.decode();
+          const bitmap = await createImageBitmap(img);
+          trackedImages = [{ image: bitmap, widthInMeters: 0.2 }];
+          setStatus('marker.png loaded');
+        } catch (e) {
+          console.error(e);
+          imgOK = false;
+          setStatus('Failed to load marker.png');
+        }
+      }
+
+      // 5) Three.js + AR setup
+      scene    = new THREE.Scene();
+      camera   = new THREE.PerspectiveCamera();
+      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
+      renderer.xr.enabled = true;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+
+      // sphere for fallback
+      const fallbackSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.15,32,16),
+        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+      );
+      fallbackSphere.visible = false;
+      scene.add(fallbackSphere);
+
+      // 6) ARButton options
+      const features = ['local-floor'];
+      const buttonOptions = { requiredFeatures: features };
+      if (imgOK) {
+        features.push('image-tracking');
+        buttonOptions.trackedImages = trackedImages;
+      }
+
+      document.body.appendChild( ARButton.createButton(renderer, buttonOptions) );
+
+      // 7) On session start
+      renderer.xr.addEventListener('sessionstart', async () => {
+        if (imgOK) {
+          setStatus('Point at your marker.png');
+          startImageTracking();
+        } else {
+          setStatus('Auto-placing sphere 2m ahead');
+          // place fallback sphere immediately
+          const cam = renderer.xr.getCamera(camera);
+          const dir = new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
+          const pos = cam.position.clone().add(dir.multiplyScalar(2));
+          fallbackSphere.position.copy(pos);
+          fallbackSphere.quaternion.copy(cam.quaternion);
+          fallbackSphere.visible = true;
+          setStatus('Fallback sphere placed');
+        }
+      });
+
+      // 8) Render loop
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    })();
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    // Image-tracking + anchor logic
+    async function startImageTracking() {
+      const session = renderer.xr.getSession();
+      const refSpace = await session.requestReferenceSpace('local-floor');
+
+      let anchor = null;
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1,32,16),
+        new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+      );
+      sphere.visible = false;
+      scene.add(sphere);
+
+      renderer.setAnimationLoop(async (time, frame) => {
+        const results = frame.getImageTrackingResults();
+        for (const result of results) {
+          if (!anchor && result.trackingState === 'tracked') {
+            const pose = frame.getPose(result.imageSpace, refSpace);
+            if (pose) {
+              anchor = await frame.createAnchor(pose.transform, refSpace);
+              setStatus('Marker detected, anchor created');
+              sphere.visible = true;
+            }
+          }
+        }
+        if (anchor) {
+          const anchorPose = frame.getPose(anchor.anchorSpace, refSpace);
+          if (anchorPose) {
+            sphere.matrix.fromArray(anchorPose.transform.matrix);
+            sphere.matrix.decompose(sphere.position, sphere.quaternion, sphere.scale);
+            sphere.matrixAutoUpdate = false;
+          }
+        }
+        renderer.render(scene, camera);
+      });
+    }
+  </script>
+</body>
+</html>
