@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>Geo+SLAM Debug & Position Logging</title>
+  <title>Geo+SLAM Anchor Inside RenderLoop</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
-    body { margin:0; overflow:hidden; font-family:sans-serif; }
+    body { margin:0; overflow:hidden; font-family:sans-serif }
     #status {
       position:absolute; top:0; left:0; right:0;
       background:rgba(0,0,0,0.6); color:#fff;
@@ -17,35 +17,33 @@
       max-height:40%; overflow-y:auto;
       background:rgba(0,0,0,0.8); color:#fff;
       font-family:monospace; font-size:12px;
-      padding:4px; z-index:9999;
-      pointer-events:none;
+      padding:4px; z-index:9999; pointer-events:none;
     }
     canvas { width:100%; height:100%; display:block; }
   </style>
 </head>
 <body>
-  <div id="status">🔍 Starting up…</div>
+  <div id="status">🔍 Starting…</div>
   <div id="debug-log"></div>
   <canvas id="xr-canvas"></canvas>
 
-  <!-- On-screen console shim -->
+  <!-- on-screen console -->
   <script>
     (function(){
       const logEl = document.getElementById('debug-log');
-      ['log','warn','error'].forEach(level => {
-        const orig = console[level].bind(console);
-        console[level] = (...args) => {
-          orig(...args);
-          const msg = args.map(a=>{
-            try{ return typeof a==='string'? a: JSON.stringify(a) }
-            catch { return String(a) }
+      ['log','warn','error'].forEach(l=>{
+        const o=console[l].bind(console);
+        console[l]=(...a)=>{
+          o(...a);
+          const msg=a.map(x=>{
+            try{ return typeof x==='string'?x:JSON.stringify(x) }catch{ return String(x) }
           }).join(' ');
-          const line = document.createElement('div');
-          line.textContent = `[${level}] ${msg}`;
-          if(level==='error') line.style.color='salmon';
-          if(level==='warn')  line.style.color='khaki';
-          logEl.appendChild(line);
-          logEl.scrollTop = logEl.scrollHeight;
+          const d=document.createElement('div');
+          d.textContent=`[${l}] ${msg}`;
+          if(l==='error') d.style.color='salmon';
+          if(l==='warn')  d.style.color='khaki';
+          logEl.appendChild(d);
+          logEl.scrollTop=logEl.scrollHeight;
         };
       });
     })();
@@ -55,197 +53,183 @@
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    // --- CONFIGURATION ---
     const TARGET_LAT = 48.28961166630169;
     const TARGET_LON = 14.282566825905297;
-    const MODEL_HEIGHT = 3;       // meters above your floor
-    const EYE_HEIGHT   = 1.6;     // approximate eye level above floor
+    const MODEL_HEIGHT = 3;     // meters above floor
+    const FALLBACK_DIST = 2;    // meters in front
 
     const statusEl = document.getElementById('status');
-    const setStatus = txt => { statusEl.textContent = txt; console.log(txt); };
+    const setStatus = t => { statusEl.textContent = t; console.log(t); };
 
     let scene, camera, renderer;
-    let xrRefSpace, xrAnchor = null;
+    let xrRefSpace;
     let geoSphere, fallbackSphere;
     let userLat, userLon, heading;
+    let anchorTried = false, xrAnchor = null;
 
-    // 1) GPS
-    async function initGeo() {
-      setStatus('📍 Getting GPS…');
-      return new Promise((res, rej) => {
-        if (!navigator.geolocation) return rej('GPS unsupported');
-        navigator.geolocation.getCurrentPosition(p => {
-          userLat = p.coords.latitude;
-          userLon = p.coords.longitude;
-          setStatus(`📍 GPS: ${userLat.toFixed(6)}, ${userLon.toFixed(6)}`);
-          res();
-        }, () => rej('GPS error'));
-      });
-    }
-
-    // 2) Compass
-    function initCompass() {
-      setStatus('🧭 Waiting for compass…');
-      return new Promise(res => {
-        window.addEventListener('deviceorientationabsolute', ev => {
-          if (ev.alpha != null) {
-            heading = ev.alpha;
-            setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
-            res();
-          }
-        }, { once: true });
-      });
-    }
-
-    // 3) Convert lat/lon to ENU meters
-    function latLonToENU(lat, lon, lat0, lon0) {
-      const R = 6378137;
-      const dLat = THREE.MathUtils.degToRad(lat - lat0);
-      const dLon = THREE.MathUtils.degToRad(lon - lon0);
+    // Helpers
+    function latLonToENU(lat,lon,lat0,lon0){
+      const R=6378137;
+      const dLat=THREE.MathUtils.degToRad(lat-lat0),
+            dLon=THREE.MathUtils.degToRad(lon-lon0);
       return {
-        east:  dLon * R * Math.cos(THREE.MathUtils.degToRad(lat0)),
-        north: dLat * R
+        east:  dLon*R*Math.cos(THREE.MathUtils.degToRad(lat0)),
+        north: dLat*R
       };
     }
 
-    // 4) Setup Three.js + AR button
-    function initThree() {
-      setStatus('🎨 Initializing Three.js…');
+    // 1) GPS + Compass
+    async function initSensors(){
+      setStatus('📍 Getting GPS…');
+      await new Promise((r,re)=> {
+        if(!navigator.geolocation) return re('No GPS');
+        navigator.geolocation.getCurrentPosition(p=>{
+          userLat = p.coords.latitude;
+          userLon = p.coords.longitude;
+          setStatus(`📍 GPS: ${userLat.toFixed(6)},${userLon.toFixed(6)}`);
+          r();
+        },()=>re('GPS error'));
+      });
+
+      setStatus('🧭 Waiting compass…');
+      await new Promise(r=>{
+        window.addEventListener('deviceorientationabsolute', ev=>{
+          if(ev.alpha!=null){
+            heading = ev.alpha;
+            setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
+            r();
+          }
+        },{once:true});
+      });
+    }
+
+    // 2) Three + ARButton
+    function initThree(){
+      setStatus('🎨 Init Three.js…');
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera();
       renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('xr-canvas'),
-        alpha: true, antialias: true
+        canvas:document.getElementById('xr-canvas'),
+        alpha:true, antialias:true
       });
-      renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled=true;
+      renderer.setSize(window.innerWidth,window.innerHeight);
 
-      const btn = ARButton.createButton(renderer, {
-        requiredFeatures: ['local-floor','anchors']
+      const btn=ARButton.createButton(renderer,{
+        requiredFeatures:['local-floor','anchors']
       });
-      btn.style.zIndex = 10000;
+      btn.style.zIndex=10000;
       document.body.appendChild(btn);
 
       scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
     }
 
-    // 5) Prepare spheres
-    function initModel() {
-      // Orange geo sphere
-      geoSphere = new THREE.Mesh(
+    // 3) Model prep
+    function initModel(){
+      geoSphere=new THREE.Mesh(
         new THREE.SphereGeometry(0.3,32,16),
-        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+        new THREE.MeshStandardMaterial({color:0xff6600})
       );
-      geoSphere.visible = false;
+      geoSphere.visible=false;
       scene.add(geoSphere);
 
-      // Green fallback sphere
-      fallbackSphere = geoSphere.clone();
-      fallbackSphere.material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-      fallbackSphere.visible = false;
+      fallbackSphere=geoSphere.clone();
+      fallbackSphere.material=new THREE.MeshStandardMaterial({color:0x00ff00});
+      fallbackSphere.visible=false;
       scene.add(fallbackSphere);
     }
 
-    // 6) On session start → anchor attempt
-    function onSessionStart() {
-      setStatus('▶️ AR started—computing anchor…');
-      renderer.xr.getSession()
-        .requestReferenceSpace('local-floor')
-        .then(ref => {
-          xrRefSpace = ref;
+    // 4) Render & anchor inside loop
+    function onXRFrame(t,frame){
+      const session = frame.session;
+      if(!anchorTried){
+        anchorTried=true;
+        setStatus('▶️ First XRFrame—trying anchor');
+        session.requestReferenceSpace('local-floor')
+          .then(ref=>{ xrRefSpace=ref; })
+          .then(()=>{
+            // ENU
+            const {east,north} = latLonToENU(
+              TARGET_LAT,TARGET_LON,userLat,userLon
+            );
+            console.log('ENU',east,north);
 
-          // compute ENU offset
-          const { east, north } = latLonToENU(
-            TARGET_LAT, TARGET_LON,
-            userLat, userLon
-          );
-          console.log(`computed ENU → east:${east}, north:${north}`);
+            // rotation from heading
+            const hRad=THREE.MathUtils.degToRad(heading||0);
+            const rot=new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(0,-hRad,0,'YXZ')
+            );
 
-          // build quaternion from heading
-          const hRad = THREE.MathUtils.degToRad(heading || 0);
-          const rot = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(0, -hRad, 0, 'YXZ')
-          );
+            // build XRRigidTransform
+            const xf=new XRRigidTransform(
+              { x:east, y:MODEL_HEIGHT, z:-north },
+              { x:rot.x,y:rot.y,z:rot.z,w:rot.w }
+            );
 
-          // FIXED model height relative to FLOOR
-          const y = MODEL_HEIGHT;
-
-          // subtract eye height if you want it at gaze level
-          const zf = -(north); // forward/back
-          const xf = new XRRigidTransform(
-            { x: east, y, z: zf },
-            { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
-          );
-
-          // try to create anchor
-          renderer.xr.getFrame().createAnchor(xf, xrRefSpace)
-            .then(a => {
-              xrAnchor = a;
-              setStatus('✅ Anchor created—showing orange sphere');
-              geoSphere.visible = true;
-            })
-            .catch(err => {
-              console.warn('Anchor failed:', err);
-              setStatus('⚠️ Anchor failed—using fallback');
-              // fallback: 2 m in front of camera at eye height
-              const cam = renderer.xr.getCamera(camera);
-              const dir = new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
-              const pos = new THREE.Vector3().copy(cam.position)
-                .add(dir.multiplyScalar(2));
+            // now createAnchor
+            frame.createAnchor(xf,xrRefSpace).then(a=>{
+              xrAnchor=a;
+              setStatus('✅ Anchor created—orange sphere visible');
+              geoSphere.visible=true;
+            }).catch(err=>{
+              console.warn('Anchor failed:',err);
+              setStatus('⚠️ Anchor failed—green fallback');
+              // fallback instantly
+              const cam=renderer.xr.getCamera(camera);
+              const dir=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
+              const pos=new THREE.Vector3().copy(cam.position)
+                         .add(dir.multiplyScalar(FALLBACK_DIST));
               fallbackSphere.position.copy(pos);
               fallbackSphere.quaternion.copy(cam.quaternion);
-              fallbackSphere.visible = true;
+              fallbackSphere.visible=true;
             });
-        });
-    }
-
-    // 7) Render loop → log positions
-    function renderLoop(time, frame) {
-      if (frame) {
-        if (xrAnchor) {
-          const pose = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
-          if (pose) {
-            geoSphere.matrix.fromArray(pose.transform.matrix);
-            geoSphere.matrix.decompose(
-              geoSphere.position, geoSphere.quaternion, geoSphere.scale
-            );
-            geoSphere.matrixAutoUpdate = false;
-            console.log(
-              `Orange sphere @ x=${geoSphere.position.x.toFixed(2)},`+
-              ` y=${geoSphere.position.y.toFixed(2)},`+
-              ` z=${geoSphere.position.z.toFixed(2)}`
-            );
-          }
-        }
-        if (fallbackSphere.visible) {
-          console.log(
-            `Green fallback @ x=${fallbackSphere.position.x.toFixed(2)},`+
-            ` y=${fallbackSphere.position.y.toFixed(2)},`+
-            ` z=${fallbackSphere.position.z.toFixed(2)}`
-          );
-        }
+          });
       }
-      renderer.render(scene, camera);
+
+      // update anchored sphere
+      if(xrAnchor){
+        const pose = frame.getPose(xrAnchor.anchorSpace,xrRefSpace);
+        if(pose){
+          geoSphere.matrix.fromArray(pose.transform.matrix);
+          geoSphere.matrix.decompose(
+            geoSphere.position,geoSphere.quaternion,geoSphere.scale
+          );
+          geoSphere.matrixAutoUpdate=false;
+          console.log(
+            `Orange at x=${geoSphere.position.x.toFixed(2)},`+
+            `y=${geoSphere.position.y.toFixed(2)},`+
+            `z=${geoSphere.position.z.toFixed(2)}`
+          );
+        } else console.warn('No anchor pose this frame');
+      }
+
+      // fallback update (static in front)
+      if(fallbackSphere.visible){
+        console.log(
+          `Green at x=${fallbackSphere.position.x.toFixed(2)},`+
+          `y=${fallbackSphere.position.y.toFixed(2)},`+
+          `z=${fallbackSphere.position.z.toFixed(2)}`
+        );
+      }
+
+      renderer.render(scene,camera);
     }
 
-    // 8) Bootstrap
+    // 5) Boot
     (async()=>{
-      try {
-        await initGeo();
-        await initCompass();
-      } catch(e) {
-        return setStatus(`❌ Init error: ${e}`);
+      try{
+        await initSensors();
+      }catch(e){
+        return setStatus(`❌ Sensor init error: ${e}`);
       }
       initThree();
       initModel();
-      renderer.xr.addEventListener('sessionstart', onSessionStart);
-      renderer.setAnimationLoop(renderLoop);
-      setStatus('Tap ENTER AR to begin');
+      renderer.xr.setAnimationLoop(onXRFrame);
+      setStatus('Tap ENTER AR');
     })();
 
-    // resize
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth/window.innerHeight;
+    window.addEventListener('resize', ()=>{
+      camera.aspect=window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
     });
