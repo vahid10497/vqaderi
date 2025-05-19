@@ -1,159 +1,63 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>WebXR AR + GPS Pin & Forget</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <style>
-    body { margin:0; overflow:hidden; font-family:sans-serif; }
-    #xr-canvas { width:100%; height:100%; display:block; }
-    #message {
-      position:absolute; top:10px; width:100%; text-align:center;
-      background:rgba(0,0,0,0.6); color:#fff; padding:0.5em; z-index:1;
+<script type="module">
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+  import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+
+  (async () => {
+    // 1) Check support
+    const imgOK = await navigator.xr.isSessionSupported('immersive-ar', {
+      requiredFeatures: ['image-tracking']
+    });
+
+    // 2) Load image if supported
+    let trackedImages = [];
+    if (imgOK) {
+      const img = new Image();
+      img.src = './marker.png';
+      await img.decode();
+      trackedImages = [{ image: img, widthInMeters: 0.2 }];
     }
-  </style>
-</head>
-<body>
-  <div id="message">Initializing AR…</div>
-  <canvas id="xr-canvas"></canvas>
 
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+    // 3) Three.js + ARButton
+    const scene    = new THREE.Scene();
+    const camera   = new THREE.PerspectiveCamera();
+    const renderer = new THREE.WebGLRenderer({ alpha:true });
+    document.body.appendChild(renderer.domElement);
+    renderer.xr.enabled = true;
+    document.body.appendChild(ARButton.createButton(renderer, {
+      requiredFeatures: imgOK ? ['local-floor','image-tracking'] : ['local-floor'],
+      trackedImages:    imgOK ? trackedImages              : undefined
+    }));
 
-    // YOUR TARGET GPS (room on first floor)
-    const TARGET = {
-      latitude:  48.28995741371078,
-      longitude: 14.282806287239909,
-      altitude:  0       // adjust if known
-    };
+    // 4) Sphere to track
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1,32,16),
+      new THREE.MeshStandardMaterial({ color: 0xff6600 })
+    );
+    sphere.visible = false;
+    scene.add(sphere);
+    scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
 
-    let scene, camera, renderer, sphere;
-    let geoRefSpace, pinned = false;
+    let xrRefSpace;
+    renderer.xr.addEventListener('sessionstart', async () => {
+      xrRefSpace = await renderer.xr.getSession().requestReferenceSpace('local-floor');
+    });
 
-    init();
-    async function init() {
-      const msg = document.getElementById('message');
-
-      if (!navigator.xr) {
-        msg.textContent = '❌ WebXR not available';
-        return;
-      }
-      if (!(await navigator.xr.isSessionSupported('immersive-ar'))) {
-        msg.textContent = '❌ AR not supported';
-        return;
-      }
-
-      // Check for Geospatial support
-      let geoOK = false;
-      try {
-        geoOK = await navigator.xr.isSessionSupported('immersive-ar', {
-          requiredFeatures: ['geospatial']
-        });
-      } catch {}
-
-      // Three.js scene + camera + renderer
-      scene    = new THREE.Scene();
-      camera   = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('xr-canvas'),
-        alpha: true
-      });
-      renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-
-      // ARButton: request geospatial if available, else just local-floor
-      const features = ['local-floor'];
-      if (geoOK) features.push('geospatial');
-
-      document.body.appendChild( ARButton.createButton(renderer, {
-        requiredFeatures: features
-      }) );
-
-      // add a hemisphere light
-      scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
-
-      // create our sphere (hidden till we place it)
-      sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3, 32, 32),
-        new THREE.MeshStandardMaterial({ color: 0x00ff00 })
-      );
-      sphere.visible = false;
-      scene.add(sphere);
-
-      // On session start: if geospatial, request that space
-      renderer.xr.addEventListener('sessionstart', async () => {
-        if (geoOK) {
-          geoRefSpace = await renderer.xr.getSession()
-            .requestReferenceSpace('geospatial');
-          msg.textContent = '📍 Waiting for GPS fix…';
-        } else {
-          // fallback: auto-place 2m ahead
-          placeAuto();
-        }
-      });
-
-      // Render loop
-      renderer.setAnimationLoop((_, frame) => {
-        if (!frame) {
-          renderer.render(scene, camera);
-          return;
-        }
-
-        if (geoRefSpace && !pinned) {
-          // geospatial flow
-          const vp = frame.getViewerPose(geoRefSpace);
-          const gp = vp?.geospatialPose;
-          if (gp && gp.accuracy.horizontal < 20) {
-            msg.textContent = '✅ GPS fix! Pinning sphere…';
-
-            // convert WGS84 → local ENU meters
-            const enu = gpsToENU(
-              TARGET.latitude, TARGET.longitude, TARGET.altitude,
-              gp.latitude, gp.longitude, gp.altitude
-            );
-
-            // place & freeze sphere
-            sphere.position.set(enu.x, enu.y, enu.z);
-            sphere.visible = true;
-            pinned = true;
-            msg.textContent = '📌 Sphere pinned at GPS location';
-          } else {
-            const text = gp
-              ? `📡 Waiting for accuracy <20 m (now ${gp.accuracy.horizontal.toFixed(1)} m)`
-              : '📍 Awaiting geospatial pose…';
-            msg.textContent = text;
+    // 5) Render loop
+    renderer.setAnimationLoop((_, frame) => {
+      if (frame && imgOK) {
+        for (const result of frame.getImageTrackingResults()) {
+          if (result.trackingState === 'tracked') {
+            const pose = frame.getPose(result.imageSpace, xrRefSpace);
+            if (pose) {
+              sphere.visible = true;
+              sphere.matrix.fromArray(pose.transform.matrix);
+              sphere.matrix.decompose(sphere.position, sphere.quaternion, sphere.scale);
+              sphere.matrixAutoUpdate = false;
+            }
           }
         }
-
-        renderer.render(scene, camera);
-      });
-    }
-
-    // Fallback auto-place: 2m in front
-    function placeAuto() {
-      const msg = document.getElementById('message');
-      const cam = renderer.xr.getCamera(camera);
-      const dir = new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
-      const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
-      sphere.position.copy(pos);
-      sphere.quaternion.copy(cam.quaternion);
-      sphere.visible = true;
-      pinned = true;
-      msg.textContent = '🔸 Auto-placed sphere';
-    }
-
-    // Simple WGS84 → ENU converter (East, Up, North negated)
-    function gpsToENU(lat,lon,alt, rLat,rLon,rAlt) {
-      const rad = v => v * Math.PI/180;
-      const R = 6378137; // Earth radius
-      const dLat = rad(lat - rLat);
-      const dLon = rad(lon - rLon);
-      const east  = dLon * R * Math.cos(rad(rLat));
-      const north = dLat * R;
-      const up    = alt - rAlt;
-      return { x: east, y: up, z: -north };
-    }
-  </script>
-</body>
-</html>
+      }
+      renderer.render(scene, camera);
+    });
+  })();
+</script>
