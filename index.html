@@ -1,87 +1,170 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>WebXR Auto-Place Sphere</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <title>WebXR Image Tracking + Auto-Place Sphere</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { margin:0; overflow:hidden; }
-    #xr-canvas { width:100%; height:100%; display:block; }
-    #message {
-      position: absolute; top: 10px; width:100%; text-align:center;
-      color: #fff; font-family:sans-serif; z-index:1;
-      background:rgba(0,0,0,0.6); padding:0.5em;
+    #status {
+      position:absolute; top:0; left:0; right:0;
+      background:rgba(0,0,0,0.6); color:#fff;
+      font-family:sans-serif; text-align:center;
+      padding:0.5em; z-index:1;
     }
+    #xr-canvas { width:100%; height:100%; display:block; }
   </style>
 </head>
 <body>
-  <div id="message">Initializing AR…</div>
+  <div id="status">🔍 Checking support…</div>
   <canvas id="xr-canvas"></canvas>
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let camera, scene, renderer;
+    const statusEl = document.getElementById('status');
+    const setStatus = txt => statusEl.textContent = txt;
+
+    let scene, camera, renderer;
+    let xrRefSpace, xrAnchor = null;
+    let sphere;
 
     init();
+
     async function init() {
-      // 1) Check for WebXR AR support
-      if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) {
-        document.getElementById('message').textContent =
-          'AR not supported on this device/browser.';
-        return;
+      setStatus('🔍 WebXR availability…');
+      if (!navigator.xr) return fail('WebXR not available');
+      setStatus('✅ WebXR available');
+
+      const arOK = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!arOK) return fail('AR not supported');
+      setStatus('✅ AR supported');
+
+      // 1) Check Image Tracking support
+      let imageOK = false, trackedImages = null;
+      try {
+        imageOK = await navigator.xr.isSessionSupported('immersive-ar', {
+          requiredFeatures: ['image-tracking']
+        });
+      } catch {}
+      setStatus(`Image Tracking: ${imageOK ? '✅ yes' : '❌ no'}`);
+
+      // 2) If supported, load marker.png
+      if (imageOK) {
+        setStatus('📥 Loading marker.png…');
+        try {
+          const img = new Image();
+          img.src = './marker.png';
+          await img.decode();
+          const bitmap = await createImageBitmap(img);
+          trackedImages = [{ image: bitmap, widthInMeters: 0.2 }];
+          setStatus('✅ marker.png loaded');
+        } catch (e) {
+          console.error(e);
+          imageOK = false;
+          setStatus('❌ failed to load marker.png');
+        }
       }
 
-      // 2) Three.js scene setup
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera();
+      // 3) Three.js boilerplate (unchanged)
+      scene    = new THREE.Scene();
+      camera   = new THREE.PerspectiveCamera();
       renderer = new THREE.WebGLRenderer({
         canvas: document.getElementById('xr-canvas'),
-        alpha: true,
-        antialias: true
+        alpha: true, antialias: true
       });
       renderer.xr.enabled = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
-
-      // 3) Add ARButton
-      document.body.appendChild(
-        ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] })
-      );
-
-      // 4) Light
       scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-      // 5) On session start, place the sphere
-      renderer.xr.addEventListener('sessionstart', placeSphere);
-
-      // 6) Render loop
-      renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
-      });
-    }
-
-    function placeSphere() {
-      document.getElementById('message').style.display = 'none';
-
-      // Create an orange sphere
-      const sphere = new THREE.Mesh(
+      // 4) Prepare our orange sphere (hidden until we place it)
+      sphere = new THREE.Mesh(
         new THREE.SphereGeometry(0.3, 32, 32),
         new THREE.MeshStandardMaterial({ color: 0xff6600 })
       );
+      sphere.visible = false;
+      scene.add(sphere);
 
-      // Compute position 2m in front of camera
+      // 5) Build ARButton options
+      const features = ['local-floor'];
+      const buttonOpts = { requiredFeatures: features };
+      if (imageOK) {
+        features.push('image-tracking');
+        buttonOpts.trackedImages = trackedImages;
+      }
+
+      document.body.appendChild( ARButton.createButton(renderer, buttonOpts) );
+
+      renderer.xr.addEventListener('sessionstart', async () => {
+        xrRefSpace = await renderer.xr.getSession()
+                             .requestReferenceSpace('local-floor');
+
+        if (imageOK) {
+          setStatus('▶️ Point at marker to anchor');
+          startImageTracking();
+        } else {
+          setStatus('🔸 Auto-placing sphere 2 m ahead');
+          placeAutoSphere();
+        }
+      });
+
+      // 6) Always render loop (sphere may appear later)
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    }
+
+    function fail(msg) {
+      setStatus(`❌ ${msg}`);
+    }
+
+    // === Auto-place fallback (exactly your original code) ===
+    function placeAutoSphere() {
+      setStatus('✅ Fallback sphere placed');
+      sphere.visible = true;
+
       const cam = renderer.xr.getCamera(camera);
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
       const pos = new THREE.Vector3().copy(cam.position).add(dir.multiplyScalar(2));
 
       sphere.position.copy(pos);
       sphere.quaternion.copy(cam.quaternion);
+    }
 
-      // Add to scene
-      scene.add(sphere);
+    // === Image-tracking + anchor flow ===
+    async function startImageTracking() {
+      let anchor = null;
+      renderer.setAnimationLoop(async (time, frame) => {
+        if (!anchor) {
+          const results = frame.getImageTrackingResults();
+          for (const result of results) {
+            if (result.trackingState === 'tracked') {
+              const pose = frame.getPose(result.imageSpace, xrRefSpace);
+              if (pose) {
+                anchor = await frame.createAnchor(pose.transform, xrRefSpace);
+                sphere.visible = true;
+                setStatus('✅ Marker tracked & anchored');
+              }
+              break;
+            }
+          }
+        }
+
+        if (anchor) {
+          const anchorPose = frame.getPose(anchor.anchorSpace, xrRefSpace);
+          if (anchorPose) {
+            sphere.matrix.fromArray(anchorPose.transform.matrix);
+            sphere.matrix.decompose(
+              sphere.position,
+              sphere.quaternion,
+              sphere.scale
+            );
+            sphere.matrixAutoUpdate = false;
+          }
+        }
+
+        renderer.render(scene, camera);
+      });
     }
   </script>
 </body>
 </html>
-
