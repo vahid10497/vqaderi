@@ -1,96 +1,127 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>WebXR Image-Tracking Sphere</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"/>
+  <title>Geospatial AR Sphere</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; }
     #xr-canvas { width:100%; height:100%; display:block; }
     #message {
       position:absolute; top:10px; width:100%; text-align:center;
-      color:#fff; background:rgba(0,0,0,0.6); padding:0.5em;
-      font-family:sans-serif; z-index:1;
+      padding:0.5em; background:rgba(0,0,0,0.6);
+      color:#fff; font-family:sans-serif; z-index:2;
     }
   </style>
 </head>
 <body>
-  <div id="message">Initializing AR…</div>
+  <div id="message">🔍 Initializing Geospatial AR…</div>
   <canvas id="xr-canvas"></canvas>
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    let renderer, scene, camera, sphere, xrRefSpace, pinned = false;
+    // Your target location
+    const TARGET = {
+      latitude:  48.28995741371078,
+      longitude: 14.282806287239909,
+      altitude:  0    // adjust if you know actual floor altitude
+    };
 
-    (async function init() {
-      // 1) Check for WebXR AR support
-      if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) {
-        document.getElementById('message').textContent = 'AR not supported on this device/browser.';
+    let scene, camera, renderer, xrGeoSpace, sphere;
+
+    init();
+    async function init() {
+      if (!navigator.xr) {
+        showMessage('❌ WebXR not available');
+        return;
+      }
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        showMessage('❌ AR not supported');
         return;
       }
 
-      // 2) Load your marker image (PNG is perfectly fine)
-      const markerImg = new Image();
-      markerImg.src = './marker.png';  
-      try {
-        await markerImg.decode();
-      } catch {
-        document.getElementById('message').textContent = '❌ Failed to load marker.png';
-        return;
-      }
-
-      // 3) Three.js + WebXR setup
+      // Three.js setup
       scene    = new THREE.Scene();
       camera   = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('xr-canvas'),
+        alpha: true
+      });
       renderer.xr.enabled = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
 
-      // 4) Add ARButton requesting image-tracking + local-floor
-      document.body.appendChild(ARButton.createButton(renderer, {
-        requiredFeatures: ['local-floor','image-tracking'],
-        trackedImages:    [{ image: markerImg, widthInMeters: 0.2 }]
-      }));
+      // ARButton with geospatial
+      document.body.appendChild( ARButton.createButton(renderer, {
+        requiredFeatures: ['local-floor','geospatial']
+      }) );
 
-      // 5) Light & sphere (hidden until tracked)
+      // Light
       scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+
+      // Sphere to place
       sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.1, 32, 16),
-        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+        new THREE.SphereGeometry(0.5, 32, 32),
+        new THREE.MeshStandardMaterial({ color: 0x00ff00 })
       );
       sphere.visible = false;
       scene.add(sphere);
 
-      // 6) On session start, get reference space
+      // When session starts, request geospatial space
       renderer.xr.addEventListener('sessionstart', async () => {
-        xrRefSpace = await renderer.xr.getSession().requestReferenceSpace('local-floor');
-        document.getElementById('message').textContent = '🔍 Point at marker.png';
+        xrGeoSpace = await renderer.xr.getSession()
+          .requestReferenceSpace('geospatial');
+        showMessage('📍 Attempting geospatial fix...');
       });
 
-      // 7) Render loop with image-tracking
-      renderer.setAnimationLoop((time, frame) => {
-        if (frame) {
-          const results = frame.getImageTrackingResults();
-          for (const result of results) {
-            if (result.trackingState === 'tracked') {
-              sphere.visible = true;
-              document.getElementById('message').textContent = '✅ Marker tracked — sphere pinned';
+      // Render loop
+      renderer.setAnimationLoop(onXRFrame);
+    }
 
-              const pose = frame.getPose(result.imageSpace, xrRefSpace);
-              if (pose) {
-                sphere.matrix.fromArray(pose.transform.matrix);
-                sphere.matrix.decompose(sphere.position, sphere.quaternion, sphere.scale);
-                sphere.matrixAutoUpdate = false;
-                pinned = true;
-              }
-            }
-          }
+    function onXRFrame(time, frame) {
+      const session = renderer.xr.getSession();
+      const pose   = frame.getViewerPose(xrGeoSpace);
+      if (pose && pose.geospatialPose) {
+        const geo = pose.geospatialPose;
+        // wait until your accuracy is <10m for good results
+        if (geo.accuracy.horizontal < 10) {
+          showMessage('✅ Geospatial fix acquired');
+          // convert target GPS → local ENU meters
+          const enu = gpsToENU(
+            TARGET.latitude, TARGET.longitude, TARGET.altitude,
+            geo.latitude,   geo.longitude,   geo.altitude
+          );
+          sphere.position.set(enu.x, enu.y, enu.z);
+          // orient sphere to face north-up
+          sphere.setRotationFromEuler(new THREE.Euler(
+            0, THREE.MathUtils.degToRad(geo.heading || 0), 0
+          ));
+          sphere.visible = true;
+        } else {
+          showMessage(`📡 Waiting for GPS fix (${geo.accuracy.horizontal.toFixed(1)} m)`);
         }
-        renderer.render(scene, camera);
-      });
-    })();
+      }
+      renderer.render(scene, camera);
+    }
+
+    function showMessage(txt) {
+      document.getElementById('message').innerText = txt;
+    }
+
+    // Simple WGS84→ENU conversion (east,north,up in meters)
+    // Accurate within a few meters over small distances.
+    function gpsToENU(lat, lon, alt, refLat, refLon, refAlt) {
+      const toRad = x => x * Math.PI/180;
+      const R = 6378137; // Earth radius
+      const dLat = toRad(lat - refLat);
+      const dLon = toRad(lon - refLon);
+      const east  = dLon * R * Math.cos(toRad(refLat));
+      const north = dLat * R;
+      const up    = (alt - refAlt);
+      return { x: east, y: up, z: -north };
+    }
   </script>
 </body>
 </html>
