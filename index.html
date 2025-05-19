@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>Geo+SLAM with On-Screen Debug</title>
+  <title>Geo+SLAM: First Floor @ 3 m</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; font-family:sans-serif; }
@@ -18,29 +18,29 @@
       background:rgba(0,0,0,0.8); color:#fff;
       font-family:monospace; font-size:12px;
       padding:4px; z-index:9999;
+      pointer-events: none;    /* ← let taps through */
     }
     canvas { width:100%; height:100%; display:block; }
   </style>
-
-  <!-- If using Origin Trial for anchors, uncomment: -->
+  <!-- If you have an Origin Trial token for anchors, insert it here: -->
   <!-- <meta http-equiv="origin-trial" content="YOUR_TOKEN_HERE"> -->
 </head>
 <body>
 
   <!-- On-screen status -->
   <div id="status">🔍 Starting up…</div>
-  <!-- On-screen console -->
+  <!-- On-screen console log (non-interactive) -->
   <div id="debug-log"></div>
   <!-- AR canvas -->
   <canvas id="xr-canvas"></canvas>
 
-  <!-- Inject onscreen console before any other script -->
+  <!-- Wrap console.* to print to #debug-log -->
   <script>
     (function(){
       const logEl = document.getElementById('debug-log');
       ['log','warn','error'].forEach(level => {
         const orig = console[level].bind(console);
-        console[level] = function(...args) {
+        console[level] = (...args) => {
           orig(...args);
           const msg = args.map(a => {
             try { return typeof a==='string'? a : JSON.stringify(a); }
@@ -61,10 +61,11 @@
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    // Target coordinates + first-floor altitude
+    // — YOUR TARGET COORDINATES —  
     const TARGET_LAT = 48.28961166630169;
     const TARGET_LON = 14.282566825905297;
-    const TARGET_ALT = 4;  // meters
+    // Fixed model height in meters above your room’s floor:
+    const FLOOR_MODEL_HEIGHT = 3;  
 
     const statusEl = document.getElementById('status');
     const setStatus = txt => {
@@ -75,9 +76,9 @@
     let scene, camera, renderer;
     let xrRefSpace, xrAnchor = null;
     let sphere;
-    let userLat, userLon, userAlt, heading;
+    let userLat, userLon;
 
-    // 1) GPS
+    // 1) Get GPS (lat/lon only)
     async function initGeo() {
       setStatus('📍 Acquiring GPS…');
       return new Promise((res, rej) => {
@@ -85,28 +86,29 @@
         navigator.geolocation.getCurrentPosition(p => {
           userLat = p.coords.latitude;
           userLon = p.coords.longitude;
-          userAlt = p.coords.altitude || 0;
-          setStatus(`📍 GPS: ${userLat.toFixed(6)},${userLon.toFixed(6)}, alt=${userAlt.toFixed(1)}`);
+          setStatus(`📍 GPS: ${userLat.toFixed(6)},${userLon.toFixed(6)}`);
           res();
         }, () => rej('❌ GPS error'));
       });
     }
 
-    // 2) Compass
+    // 2) Get absolute compass heading
     function initCompass() {
       setStatus('🧭 Waiting for compass…');
       return new Promise(res => {
         window.addEventListener('deviceorientationabsolute', ev => {
           if (ev.alpha != null) {
-            heading = ev.alpha;
+            const heading = ev.alpha;
             setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
+            // store globally:
+            window.__heading = heading;
             res();
           }
         }, { once: true });
       });
     }
 
-    // 3) ENU conversion
+    // 3) ENU conversion helper
     function latLonToENU(lat, lon, lat0, lon0) {
       const R = 6378137;
       const dLat = THREE.MathUtils.degToRad(lat - lat0);
@@ -124,21 +126,22 @@
       camera   = new THREE.PerspectiveCamera();
       renderer = new THREE.WebGLRenderer({
         canvas: document.getElementById('xr-canvas'),
-        alpha: true, antialias: true
+        alpha:true, antialias:true
       });
       renderer.xr.enabled = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
 
-      document.body.appendChild(
-        ARButton.createButton(renderer, {
-          requiredFeatures: ['local-floor','anchors']
-        })
-      );
+      // Create the button and bump its z-index so it sits above our debug-log
+      const btn = ARButton.createButton(renderer, {
+        requiredFeatures: ['local-floor','anchors']
+      });
+      btn.style.zIndex = 10000;
+      document.body.appendChild(btn);
 
       scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
     }
 
-    // 5) Model (orange sphere)
+    // 5) Create your 3D object (orange sphere)
     function initModel() {
       setStatus('🔶 Creating sphere…');
       sphere = new THREE.Mesh(
@@ -149,25 +152,32 @@
       scene.add(sphere);
     }
 
-    // 6) On AR start → compute & anchor
+    // 6) On AR start: compute ENU offset + anchor
     function onSessionStart() {
-      setStatus('▶️ AR started—anchoring…');
+      setStatus('▶️ AR session started—anchoring…');
       renderer.xr.getSession()
         .requestReferenceSpace('local-floor')
         .then(refSpace => {
           xrRefSpace = refSpace;
+
+          // 6a) ENU offset user → target
           const { east, north } = latLonToENU(
             TARGET_LAT, TARGET_LON,
             userLat, userLon
           );
-          const up = TARGET_ALT - userAlt;
-          setStatus(`➡️ Offset: E${east.toFixed(1)} N${north.toFixed(1)} U${up.toFixed(1)}`);
+          setStatus(`➡️ Offset: east ${east.toFixed(1)} m, north ${north.toFixed(1)} m`);
 
-          const hRad = THREE.MathUtils.degToRad(heading || 0);
+          // 6b) fixed Y = FLOOR_MODEL_HEIGHT
+          const up = FLOOR_MODEL_HEIGHT;
+          setStatus(`↟ Model height: ${up.toFixed(1)} m`);
+
+          // 6c) compass rotation
+          const hRad = THREE.MathUtils.degToRad(window.__heading || 0);
           const rot = new THREE.Quaternion().setFromEuler(
             new THREE.Euler(0, -hRad, 0, 'YXZ')
           );
 
+          // 6d) create the XRRigidTransform and anchor
           const xf = new XRRigidTransform(
             { x: east, y: up, z: -north },
             { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
@@ -177,16 +187,15 @@
               xrAnchor = a;
               setStatus('✅ Anchor created—showing sphere');
               sphere.visible = true;
-              setTimeout(() => {
-                if (xrAnchor) setStatus('🔒 Anchor locked');
-                else setStatus('❌ Anchor disappeared');
-              }, 5000);
+              setTimeout(()=>{
+                setStatus('🔒 Anchor locked at 3 m');
+              }, 3000);
             })
-            .catch(err => setStatus('❌ Anchor failed: ' + err));
-        });
+            .catch(err => setStatus('❌ Anchor error: ' + err));
+      });
     }
 
-    // 7) Render loop: update from anchor
+    // 7) Render loop: update sphere from anchor pose
     function renderLoop(time, frame) {
       if (frame && xrAnchor) {
         const ap = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
@@ -201,8 +210,8 @@
       renderer.render(scene, camera);
     }
 
-    // 8) Bootstrap
-    (async function() {
+    // 8) Bootstrap sequence
+    (async function(){
       try {
         await initGeo();
         await initCompass();
@@ -211,12 +220,15 @@
       }
       initThree();
       initModel();
+
       renderer.xr.addEventListener('sessionstart', onSessionStart);
       renderer.setAnimationLoop(renderLoop);
-      setStatus('Tap ENTER AR to begin');
+
+      setStatus('Tap ENTER AR to place at 3 m');
     })();
 
-    window.addEventListener('resize', () => {
+    // 9) Handle resizing
+    window.addEventListener('resize', ()=>{
       camera.aspect = window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
