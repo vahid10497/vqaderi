@@ -1,63 +1,134 @@
-<script type="module">
-  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-  import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebXR Image-Tracking + Anchor Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; overflow:hidden; }
+    canvas { width:100%; height:100%; display:block; }
+    #message {
+      position:absolute; top:10px; width:100%; text-align:center;
+      color:white; background:rgba(0,0,0,0.6); padding:0.5em;
+      font-family:sans-serif; z-index:1;
+    }
+  </style>
+</head>
+<body>
+  <div id="message">🔍 Initializing Image-Tracking AR…</div>
+  <canvas id="xr-canvas"></canvas>
 
-  (async () => {
-    // 1) Check support
-    const imgOK = await navigator.xr.isSessionSupported('immersive-ar', {
-      requiredFeatures: ['image-tracking']
-    });
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    // 2) Load image if supported
-    let trackedImages = [];
-    if (imgOK) {
+    let renderer, scene, camera;
+    let xrRefSpace, xrAnchor = null;
+    let sphereMesh;
+    const MESSAGE = document.getElementById('message');
+
+    init();
+
+    async function init() {
+      // 1) Feature-detect
+      if (!navigator.xr) {
+        MESSAGE.textContent = '❌ WebXR not available';
+        return;
+      }
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        MESSAGE.textContent = '❌ AR not supported';
+        return;
+      }
+
+      // 2) Load and decode your marker image
+      MESSAGE.textContent = '📥 Loading marker…';
       const img = new Image();
-      img.src = './marker.png';
-      await img.decode();
-      trackedImages = [{ image: img, widthInMeters: 0.2 }];
+      img.src = './marker.png';  // make sure this file is alongside your HTML
+      try {
+        await img.decode();
+      } catch(e) {
+        console.error('marker.png decode failed', e);
+        MESSAGE.textContent = '❌ Failed to load marker.png';
+        return;
+      }
+      const bitmap = await createImageBitmap(img);
+
+      // 3) Three.js + WebXR setup
+      scene    = new THREE.Scene();
+      camera   = new THREE.PerspectiveCamera();
+      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('xr-canvas'), alpha: true });
+      renderer.xr.enabled = true;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+
+      // 4) Prepare our sphere (hidden until anchored)
+      sphereMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 32, 16),
+        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+      );
+      sphereMesh.visible = false;
+      scene.add(sphereMesh);
+
+      // 5) Add ARButton requesting image-tracking
+      document.body.appendChild(
+        ARButton.createButton(renderer, {
+          requiredFeatures: ['local-floor', 'image-tracking'],
+          trackedImages:    [{ image: bitmap, widthInMeters: 0.2 }]
+        })
+      );
+
+      // 6) On session start, get reference space
+      renderer.xr.addEventListener('sessionstart', async () => {
+        xrRefSpace = await renderer.xr.getSession().requestReferenceSpace('local-floor');
+        MESSAGE.textContent = '▶️ Point at your marker';
+      });
+
+      // 7) Render loop: track image & create anchor once
+      renderer.setAnimationLoop(onXRFrame);
     }
 
-    // 3) Three.js + ARButton
-    const scene    = new THREE.Scene();
-    const camera   = new THREE.PerspectiveCamera();
-    const renderer = new THREE.WebGLRenderer({ alpha:true });
-    document.body.appendChild(renderer.domElement);
-    renderer.xr.enabled = true;
-    document.body.appendChild(ARButton.createButton(renderer, {
-      requiredFeatures: imgOK ? ['local-floor','image-tracking'] : ['local-floor'],
-      trackedImages:    imgOK ? trackedImages              : undefined
-    }));
-
-    // 4) Sphere to track
-    const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.1,32,16),
-      new THREE.MeshStandardMaterial({ color: 0xff6600 })
-    );
-    sphere.visible = false;
-    scene.add(sphere);
-    scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
-
-    let xrRefSpace;
-    renderer.xr.addEventListener('sessionstart', async () => {
-      xrRefSpace = await renderer.xr.getSession().requestReferenceSpace('local-floor');
-    });
-
-    // 5) Render loop
-    renderer.setAnimationLoop((_, frame) => {
-      if (frame && imgOK) {
-        for (const result of frame.getImageTrackingResults()) {
-          if (result.trackingState === 'tracked') {
-            const pose = frame.getPose(result.imageSpace, xrRefSpace);
-            if (pose) {
-              sphere.visible = true;
-              sphere.matrix.fromArray(pose.transform.matrix);
-              sphere.matrix.decompose(sphere.position, sphere.quaternion, sphere.scale);
-              sphere.matrixAutoUpdate = false;
+    async function onXRFrame(time, frame) {
+      const session = renderer.xr.getSession();
+      const pose   = frame.getViewerPose(xrRefSpace);
+      if (pose) {
+        // handle image-tracking → anchor creation
+        if (!xrAnchor) {
+          const results = frame.getImageTrackingResults();
+          for (const result of results) {
+            if (result.trackingState === 'tracked') {
+              // 7.1) Get the pose of the image in world space
+              const imagePose = frame.getPose(result.imageSpace, xrRefSpace);
+              if (imagePose) {
+                // 7.2) Create a persistent anchor at that pose
+                xrAnchor = await frame.createAnchor(imagePose.transform, xrRefSpace);
+                MESSAGE.textContent = '✅ Image detected — anchor created!';
+                // show sphere now
+                sphereMesh.visible = true;
+              }
+              break;  // only anchor once
             }
           }
         }
+
+        // 7.3) If we have an anchor, render our sphere using its anchorSpace
+        if (xrAnchor) {
+          const anchorPose = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
+          if (anchorPose) {
+            // apply the 4×4 transform matrix
+            sphereMesh.matrix.fromArray(anchorPose.transform.matrix);
+            sphereMesh.matrix.decompose(
+              sphereMesh.position,
+              sphereMesh.quaternion,
+              sphereMesh.scale
+            );
+            sphereMesh.matrixAutoUpdate = false;
+          }
+        }
       }
+
       renderer.render(scene, camera);
-    });
-  })();
-</script>
+    }
+  </script>
+</body>
+</html>
