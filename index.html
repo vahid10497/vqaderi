@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>Geo+SLAM: First Floor @ 3 m</title>
+  <title>Geo+SLAM Debug & Position Logging</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; font-family:sans-serif; }
@@ -18,23 +18,17 @@
       background:rgba(0,0,0,0.8); color:#fff;
       font-family:monospace; font-size:12px;
       padding:4px; z-index:9999;
-      pointer-events: none;    /* ← let taps through */
+      pointer-events:none;
     }
     canvas { width:100%; height:100%; display:block; }
   </style>
-  <!-- If you have an Origin Trial token for anchors, insert it here: -->
-  <!-- <meta http-equiv="origin-trial" content="YOUR_TOKEN_HERE"> -->
 </head>
 <body>
-
-  <!-- On-screen status -->
   <div id="status">🔍 Starting up…</div>
-  <!-- On-screen console log (non-interactive) -->
   <div id="debug-log"></div>
-  <!-- AR canvas -->
   <canvas id="xr-canvas"></canvas>
 
-  <!-- Wrap console.* to print to #debug-log -->
+  <!-- On-screen console shim -->
   <script>
     (function(){
       const logEl = document.getElementById('debug-log');
@@ -42,14 +36,14 @@
         const orig = console[level].bind(console);
         console[level] = (...args) => {
           orig(...args);
-          const msg = args.map(a => {
-            try { return typeof a==='string'? a : JSON.stringify(a); }
-            catch { return String(a); }
+          const msg = args.map(a=>{
+            try{ return typeof a==='string'? a: JSON.stringify(a) }
+            catch { return String(a) }
           }).join(' ');
           const line = document.createElement('div');
           line.textContent = `[${level}] ${msg}`;
-          if (level==='error') line.style.color = 'salmon';
-          if (level==='warn')  line.style.color = 'khaki';
+          if(level==='error') line.style.color='salmon';
+          if(level==='warn')  line.style.color='khaki';
           logEl.appendChild(line);
           logEl.scrollTop = logEl.scrollHeight;
         };
@@ -61,54 +55,49 @@
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    // — YOUR TARGET COORDINATES —  
+    // --- CONFIGURATION ---
     const TARGET_LAT = 48.28961166630169;
     const TARGET_LON = 14.282566825905297;
-    // Fixed model height in meters above your room’s floor:
-    const FLOOR_MODEL_HEIGHT = 3;  
+    const MODEL_HEIGHT = 3;       // meters above your floor
+    const EYE_HEIGHT   = 1.6;     // approximate eye level above floor
 
     const statusEl = document.getElementById('status');
-    const setStatus = txt => {
-      statusEl.textContent = txt;
-      console.log(txt);
-    };
+    const setStatus = txt => { statusEl.textContent = txt; console.log(txt); };
 
     let scene, camera, renderer;
     let xrRefSpace, xrAnchor = null;
-    let sphere;
-    let userLat, userLon;
+    let geoSphere, fallbackSphere;
+    let userLat, userLon, heading;
 
-    // 1) Get GPS (lat/lon only)
+    // 1) GPS
     async function initGeo() {
-      setStatus('📍 Acquiring GPS…');
+      setStatus('📍 Getting GPS…');
       return new Promise((res, rej) => {
         if (!navigator.geolocation) return rej('GPS unsupported');
         navigator.geolocation.getCurrentPosition(p => {
           userLat = p.coords.latitude;
           userLon = p.coords.longitude;
-          setStatus(`📍 GPS: ${userLat.toFixed(6)},${userLon.toFixed(6)}`);
+          setStatus(`📍 GPS: ${userLat.toFixed(6)}, ${userLon.toFixed(6)}`);
           res();
-        }, () => rej('❌ GPS error'));
+        }, () => rej('GPS error'));
       });
     }
 
-    // 2) Get absolute compass heading
+    // 2) Compass
     function initCompass() {
       setStatus('🧭 Waiting for compass…');
       return new Promise(res => {
         window.addEventListener('deviceorientationabsolute', ev => {
           if (ev.alpha != null) {
-            const heading = ev.alpha;
+            heading = ev.alpha;
             setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
-            // store globally:
-            window.__heading = heading;
             res();
           }
         }, { once: true });
       });
     }
 
-    // 3) ENU conversion helper
+    // 3) Convert lat/lon to ENU meters
     function latLonToENU(lat, lon, lat0, lon0) {
       const R = 6378137;
       const dLat = THREE.MathUtils.degToRad(lat - lat0);
@@ -119,19 +108,18 @@
       };
     }
 
-    // 4) Three.js + ARButton
+    // 4) Setup Three.js + AR button
     function initThree() {
       setStatus('🎨 Initializing Three.js…');
-      scene    = new THREE.Scene();
-      camera   = new THREE.PerspectiveCamera();
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera();
       renderer = new THREE.WebGLRenderer({
         canvas: document.getElementById('xr-canvas'),
-        alpha:true, antialias:true
+        alpha: true, antialias: true
       });
       renderer.xr.enabled = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
 
-      // Create the button and bump its z-index so it sits above our debug-log
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['local-floor','anchors']
       });
@@ -141,94 +129,122 @@
       scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
     }
 
-    // 5) Create your 3D object (orange sphere)
+    // 5) Prepare spheres
     function initModel() {
-      setStatus('🔶 Creating sphere…');
-      sphere = new THREE.Mesh(
+      // Orange geo sphere
+      geoSphere = new THREE.Mesh(
         new THREE.SphereGeometry(0.3,32,16),
         new THREE.MeshStandardMaterial({ color: 0xff6600 })
       );
-      sphere.visible = false;
-      scene.add(sphere);
+      geoSphere.visible = false;
+      scene.add(geoSphere);
+
+      // Green fallback sphere
+      fallbackSphere = geoSphere.clone();
+      fallbackSphere.material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+      fallbackSphere.visible = false;
+      scene.add(fallbackSphere);
     }
 
-    // 6) On AR start: compute ENU offset + anchor
+    // 6) On session start → anchor attempt
     function onSessionStart() {
-      setStatus('▶️ AR session started—anchoring…');
+      setStatus('▶️ AR started—computing anchor…');
       renderer.xr.getSession()
         .requestReferenceSpace('local-floor')
-        .then(refSpace => {
-          xrRefSpace = refSpace;
+        .then(ref => {
+          xrRefSpace = ref;
 
-          // 6a) ENU offset user → target
+          // compute ENU offset
           const { east, north } = latLonToENU(
             TARGET_LAT, TARGET_LON,
             userLat, userLon
           );
-          setStatus(`➡️ Offset: east ${east.toFixed(1)} m, north ${north.toFixed(1)} m`);
+          console.log(`computed ENU → east:${east}, north:${north}`);
 
-          // 6b) fixed Y = FLOOR_MODEL_HEIGHT
-          const up = FLOOR_MODEL_HEIGHT;
-          setStatus(`↟ Model height: ${up.toFixed(1)} m`);
-
-          // 6c) compass rotation
-          const hRad = THREE.MathUtils.degToRad(window.__heading || 0);
+          // build quaternion from heading
+          const hRad = THREE.MathUtils.degToRad(heading || 0);
           const rot = new THREE.Quaternion().setFromEuler(
             new THREE.Euler(0, -hRad, 0, 'YXZ')
           );
 
-          // 6d) create the XRRigidTransform and anchor
+          // FIXED model height relative to FLOOR
+          const y = MODEL_HEIGHT;
+
+          // subtract eye height if you want it at gaze level
+          const zf = -(north); // forward/back
           const xf = new XRRigidTransform(
-            { x: east, y: up, z: -north },
+            { x: east, y, z: zf },
             { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
           );
+
+          // try to create anchor
           renderer.xr.getFrame().createAnchor(xf, xrRefSpace)
             .then(a => {
               xrAnchor = a;
-              setStatus('✅ Anchor created—showing sphere');
-              sphere.visible = true;
-              setTimeout(()=>{
-                setStatus('🔒 Anchor locked at 3 m');
-              }, 3000);
+              setStatus('✅ Anchor created—showing orange sphere');
+              geoSphere.visible = true;
             })
-            .catch(err => setStatus('❌ Anchor error: ' + err));
-      });
+            .catch(err => {
+              console.warn('Anchor failed:', err);
+              setStatus('⚠️ Anchor failed—using fallback');
+              // fallback: 2 m in front of camera at eye height
+              const cam = renderer.xr.getCamera(camera);
+              const dir = new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
+              const pos = new THREE.Vector3().copy(cam.position)
+                .add(dir.multiplyScalar(2));
+              fallbackSphere.position.copy(pos);
+              fallbackSphere.quaternion.copy(cam.quaternion);
+              fallbackSphere.visible = true;
+            });
+        });
     }
 
-    // 7) Render loop: update sphere from anchor pose
+    // 7) Render loop → log positions
     function renderLoop(time, frame) {
-      if (frame && xrAnchor) {
-        const ap = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
-        if (ap) {
-          sphere.matrix.fromArray(ap.transform.matrix);
-          sphere.matrix.decompose(sphere.position, sphere.quaternion, sphere.scale);
-          sphere.matrixAutoUpdate = false;
-        } else {
-          console.warn('No anchor pose this frame');
+      if (frame) {
+        if (xrAnchor) {
+          const pose = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
+          if (pose) {
+            geoSphere.matrix.fromArray(pose.transform.matrix);
+            geoSphere.matrix.decompose(
+              geoSphere.position, geoSphere.quaternion, geoSphere.scale
+            );
+            geoSphere.matrixAutoUpdate = false;
+            console.log(
+              `Orange sphere @ x=${geoSphere.position.x.toFixed(2)},`+
+              ` y=${geoSphere.position.y.toFixed(2)},`+
+              ` z=${geoSphere.position.z.toFixed(2)}`
+            );
+          }
+        }
+        if (fallbackSphere.visible) {
+          console.log(
+            `Green fallback @ x=${fallbackSphere.position.x.toFixed(2)},`+
+            ` y=${fallbackSphere.position.y.toFixed(2)},`+
+            ` z=${fallbackSphere.position.z.toFixed(2)}`
+          );
         }
       }
       renderer.render(scene, camera);
     }
 
-    // 8) Bootstrap sequence
-    (async function(){
+    // 8) Bootstrap
+    (async()=>{
       try {
         await initGeo();
         await initCompass();
-      } catch (e) {
+      } catch(e) {
         return setStatus(`❌ Init error: ${e}`);
       }
       initThree();
       initModel();
-
       renderer.xr.addEventListener('sessionstart', onSessionStart);
       renderer.setAnimationLoop(renderLoop);
-
-      setStatus('Tap ENTER AR to place at 3 m');
+      setStatus('Tap ENTER AR to begin');
     })();
 
-    // 9) Handle resizing
-    window.addEventListener('resize', ()=>{
+    // resize
+    window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
