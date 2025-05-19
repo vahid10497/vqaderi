@@ -1,31 +1,184 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>AR</title>
-  <meta charset="utf-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8"/>
+  <title>Geo + SLAM WebXR Anchor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
-    body { background: black; margin:0; overflow:hidden }
+    body { margin:0; overflow:hidden; font-family:sans-serif; }
     #status {
       position:absolute; top:0; left:0; right:0;
-      padding:0.5em; text-align:center;
-      font-family:sans-serif; color:#fff;
-      background:rgba(0,0,0,0.6); z-index:10;
+      background:rgba(0,0,0,0.6); color:#fff;
+      padding:0.5em; text-align:center; z-index:10;
+      pointer-events:none;
     }
+    canvas { width:100%; height:100%; display:block; }
   </style>
+  <!-- If you have an Origin Trial token for anchors, uncomment and insert it here: -->
+  <!-- <meta http-equiv="origin-trial" content="YOUR_TOKEN_HERE"> -->
 </head>
 <body>
+  <div id="status">🔍 Initializing…</div>
+  <canvas id="xr-canvas"></canvas>
 
-  <!-- ← CHANGE the src here to your marker.png in the root -->
-  <img id="bitmap" style="display:none;" src="marker.png">
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-  <!-- optional status bar -->
-  <div id="status">🔍 Waiting for your tap…</div>
+    // --- CONFIGURE YOUR TARGET LOCATION HERE ---
+    const TARGET_LAT = 48.28961166630169;
+    const TARGET_LON = 14.282566825905297;
+    const TARGET_ALT = 15; // meters above sea-level, if known
 
-  <!-- three.js from CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- your unmodified app logic -->
-  <script src="webxrMarker.js"></script>
+    const statusEl = document.getElementById('status');
+    const setStatus = txt => statusEl.textContent = txt;
+
+    let scene, camera, renderer;
+    let xrRefSpace, xrAnchor = null;
+    let userLat, userLon, userAlt, heading;
+
+    // 1) Acquire GPS + compass
+    async function initGeo() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject('Geolocation unsupported');
+        navigator.geolocation.getCurrentPosition(pos => {
+          userLat = pos.coords.latitude;
+          userLon = pos.coords.longitude;
+          userAlt = pos.coords.altitude || 0;
+          setStatus('📍 GPS ready');
+          resolve();
+        }, e => reject('GPS error'));
+      });
+    }
+    function initCompass() {
+      return new Promise((resolve) => {
+        window.addEventListener('deviceorientationabsolute', ev => {
+          if (ev.alpha != null) {
+            heading = ev.alpha; // degrees
+            setStatus('🧭 Compass ready');
+            resolve();
+          }
+        }, { once: true });
+      });
+    }
+
+    // 2) Convert Δlat/Δlon to ENU (meters)
+    function latLonToENU(lat, lon, lat0, lon0) {
+      const R = 6378137; // earth radius
+      const dLat = THREE.MathUtils.degToRad(lat - lat0);
+      const dLon = THREE.MathUtils.degToRad(lon - lon0);
+      const east  = dLon * R * Math.cos(THREE.MathUtils.degToRad(lat0));
+      const north = dLat * R;
+      return { east, north };
+    }
+
+    // 3) Setup Three.js + ARButton
+    function initThree() {
+      scene    = new THREE.Scene();
+      camera   = new THREE.PerspectiveCamera();
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('xr-canvas'),
+        alpha: true, antialias: true
+      });
+      renderer.xr.enabled = true;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      document.body.appendChild(
+        ARButton.createButton(renderer, {
+          requiredFeatures: ['local-floor','anchors']
+        })
+      );
+
+      scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
+    }
+
+    // 4) On AR session start: compute initial transform + anchor
+    function onSessionStart() {
+      renderer.xr.getSession()
+        .requestReferenceSpace('local-floor')
+        .then(refSpace => {
+          xrRefSpace = refSpace;
+          setStatus('▶️ AR session started—placing anchor');
+          // compute ENU offset
+          const { east, north } = latLonToENU(
+            TARGET_LAT, TARGET_LON,
+            userLat,   userLon
+          );
+          const up = (TARGET_ALT || 0) - userAlt;
+
+          // build XRRigidTransform: camera-local ENU
+          const quat = new XRRigidTransform().orientation;
+          // convert heading to quaternion around Y-axis
+          const hRad = THREE.MathUtils.degToRad(heading || 0);
+          const rot = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(0, -hRad, 0, 'YXZ')
+          );
+
+          const initialTransform = new XRRigidTransform(
+            { x: east, y: up, z: -north },
+            { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
+          );
+
+          // create anchor
+          renderer.xr.getFrame().createAnchor(initialTransform, xrRefSpace)
+            .then(anchor => {
+              xrAnchor = anchor;
+              setStatus('✅ Anchor created—locking in 3 s');
+              setTimeout(() => setStatus('🔒 Anchor locked'), 3000);
+            })
+            .catch(err => setStatus('❌ Anchor error'));
+        });
+    }
+
+    // 5) Create a simple box and render from the anchor
+    let box;
+    function initBox() {
+      box = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3,0.3,0.3),
+        new THREE.MeshStandardMaterial({ color: 0xff6600 })
+      );
+      box.visible = false;
+      scene.add(box);
+    }
+
+    // 6) Render loop
+    function renderLoop(time, frame) {
+      if (frame && xrAnchor) {
+        const ap = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
+        if (ap) {
+          box.visible = true;
+          box.matrix.fromArray(ap.transform.matrix);
+          box.matrix.decompose(box.position, box.quaternion, box.scale);
+          box.matrixAutoUpdate = false;
+        }
+      }
+      renderer.render(scene, camera);
+    }
+
+    // 7) Wire it all together
+    (async function() {
+      try {
+        await initGeo();
+        await initCompass();
+      } catch (e) {
+        return setStatus(`❌ ${e}`);
+      }
+
+      initThree();
+      initBox();
+
+      renderer.xr.addEventListener('sessionstart', onSessionStart);
+      renderer.setAnimationLoop(renderLoop);
+
+      setStatus('Tap ENTER AR to begin');
+    })();
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth,window.innerHeight);
+    });
+  </script>
 </body>
 </html>
