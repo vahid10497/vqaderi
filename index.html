@@ -1,186 +1,45 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>Geo AR—Fixed Orange Sphere</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <style>
-    body { margin:0; overflow:hidden; font-family:sans-serif }
-    #status {
-      position:absolute; top:0; left:0; right:0;
-      background:rgba(0,0,0,0.6); color:#fff;
-      padding:0.5em; text-align:center; z-index:10;
-      pointer-events:none;
-    }
-    canvas { width:100%; height:100%; display:block }
-  </style>
-</head>
-<body>
-  <div id="status">Tap ENTER AR</div>
-  <canvas id="xr-canvas"></canvas>
-
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
-
-    // — YOUR TARGET —
-    const TARGET_LAT = 48.305596;
-    const TARGET_LON = 14.289124;
-    const SPHERE_RADIUS = 1;      // meters
-    const HEIGHT_ABOVE_GROUND = 3; // meters
-    const EYE_HEIGHT = 1.6;        // meters
-
-    const statusEl = document.createElement('div');
-    statusEl.id = 'status';
-    document.body.appendChild(statusEl);
-    const setStatus = txt => statusEl.textContent = txt;
-
-    let scene, camera, renderer;
-    let sphereMesh;
-    let xrRefSpace = null, xrAnchor = null;
-
-    // 1) Convert lat/lon delta to East-North meters
-    function latLonToENU(lat, lon, lat0, lon0) {
-      const R = 6378137; // earth radius
-      const dLat = THREE.MathUtils.degToRad(lat - lat0);
-      const dLon = THREE.MathUtils.degToRad(lon - lon0);
-      return {
-        east:  dLon * R * Math.cos(THREE.MathUtils.degToRad(lat0)),
-        north: dLat * R
-      };
-    }
-
-    // 2) Sample your device's GPS + compass one time
-    async function sampleSensors() {
-      setStatus('📍 Getting GPS…');
-      const pos = await new Promise((res, rej) => {
-        navigator.geolocation.getCurrentPosition(res, rej, {
-          enableHighAccuracy: true, timeout: 7000
-        });
-      });
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
-      setStatus(`📍 GPS: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
-
-      setStatus('🧭 Getting compass…');
-      const heading = await new Promise(res => {
-        window.addEventListener('deviceorientationabsolute', ev => {
-          if (ev.alpha != null) res(ev.alpha);
-        }, { once: true });
-      });
-      setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
-
-      return { lat, lon, heading };
-    }
-
-    // 3) Three.js + ARButton
-    function initThree() {
-      scene    = new THREE.Scene();
-      camera   = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('xr-canvas'),
-        alpha: true, antialias: true
-      });
-      renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-
-      const btn = ARButton.createButton(renderer, {
-        requiredFeatures: ['local-floor', 'anchors']
-      });
-      btn.style.zIndex = 1e4;
-      document.body.appendChild(btn);
-
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
-    }
-
-    // 4) Build the orange sphere (initially hidden)
-    function initSphere() {
-      sphereMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(SPHERE_RADIUS, 32, 16),
-        new THREE.MeshStandardMaterial({ color: 0xff6600 })
-      );
-      sphereMesh.visible = false;
-      scene.add(sphereMesh);
-    }
-
-    // 5) On every XR frame: place & then update the anchored sphere
-    async function onXRFrame(time, frame) {
-      const session = frame.session;
-
-      // (a) get local-floor once
-      if (!xrRefSpace) {
-        try {
-          xrRefSpace = await session.requestReferenceSpace('local-floor');
-          console.log('✅ got local-floor');
-        } catch (e) {
-          console.warn('refSpace error', e);
-        }
+<html>
+  <head>
+    <title>AR.js + GPS Sphere</title>
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/3.3.2/aframe/build/aframe-ar-nft.js"></script>
+    <style>
+      body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+      #gps-info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        font-family: sans-serif;
+        background: rgba(0,0,0,0.5);
+        padding: 0.5em;
+        z-index: 100;
       }
+    </style>
+  </head>
+  <body>
+    <div id="gps-info">Waiting for GPS...</div>
+    <a-scene
+      vr-mode-ui="enabled: false"
+      embedded
+      arjs="sourceType: webcam; gpsMinAccuracy: 100; debugUIEnabled: false;"
+    >
+      <a-camera gps-camera rotation-reader></a-camera>
 
-      // (b) on the very first frame: sample sensors, compute ENU, createAnchor()
-      if (!xrAnchor && xrRefSpace) {
-        setStatus('▶️ Placing sphere…');
-        try {
-          const { lat, lon, heading } = await sampleSensors();
-          // slight pause to let SLAM settle
-          await new Promise(r => setTimeout(r, 1000));
+      <a-sphere
+        gps-entity-place="latitude: 48.305596; longitude: 14.289124;"
+        radius="0.1"
+        color="orange"
+      ></a-sphere>
+    </a-scene>
 
-          // compute offset
-          const { east, north } = latLonToENU(
-            TARGET_LAT, TARGET_LON, lat, lon
-          );
-          console.log('ENU offset:', east, north);
-
-          // heading → rotation
-          const rot = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(0, -THREE.MathUtils.degToRad(heading), 0, 'YXZ')
-          );
-
-          // height above your eye
-          const y = HEIGHT_ABOVE_GROUND - EYE_HEIGHT;
-
-          // anchor at (east, y, –north)
-          xrAnchor = await frame.createAnchor(
-            new XRRigidTransform({ x: east, y, z: -north }, rot),
-            xrRefSpace
-          );
-
-          setStatus('✅ Sphere placed');
-          sphereMesh.visible = true;
-        } catch (err) {
-          console.error('Placement error', err);
-          setStatus('❌ Could not place sphere');
-        }
-      }
-
-      // (c) once anchored, copy its pose each frame
-      if (xrAnchor) {
-        const pose = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
-        if (pose) {
-          sphereMesh.matrix.fromArray(pose.transform.matrix);
-          sphereMesh.matrix.decompose(
-            sphereMesh.position,
-            sphereMesh.quaternion,
-            sphereMesh.scale
-          );
-          sphereMesh.matrixAutoUpdate = false;
-        }
-      }
-
-      renderer.render(scene, camera);
-    }
-
-    // 6) Bootstrap
-    initThree();
-    initSphere();
-    renderer.xr.setAnimationLoop(onXRFrame);
-    setStatus('Tap ENTER AR');
-
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth/window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-  </script>
-</body>
+    <script>
+      // Show GPS status
+      window.addEventListener('gps-camera-update-position', (e) => {
+        const el = document.getElementById('gps-info');
+        el.textContent = `GPS: ${e.detail.position.latitude.toFixed(6)}, ${e.detail.position.longitude.toFixed(6)}`;
+      });
+    </script>
+  </body>
 </html>
