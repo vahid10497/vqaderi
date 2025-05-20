@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Geo AR — Pinned at 48.308066, 14.284432</title>
+  <title>Geo AR — Fresh GPS on AR Start</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; font-family:sans-serif }
@@ -27,18 +27,18 @@
   <div id="log"></div>
   <canvas id="xr-canvas"></canvas>
 
-  <!-- on-screen console shim -->
+  <!-- on-screen console -->
   <script>
     (()=>{
       const out = document.getElementById('log');
-      ['log','warn','error'].forEach(level=>{
-        const orig = console[level].bind(console);
-        console[level] = (...args)=>{
-          orig(...args);
-          const d = document.createElement('div');
-          d.textContent = `[${level}] ${args.map(a=>typeof a==='string'?a:JSON.stringify(a)).join(' ')}`;
-          if(level==='warn') d.style.color='khaki';
-          if(level==='error') d.style.color='salmon';
+      ['log','warn','error'].forEach(lvl=>{
+        const orig = console[lvl].bind(console);
+        console[lvl] = (...a)=>{
+          orig(...a);
+          const d=document.createElement('div');
+          d.textContent=`[${lvl}] ${a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' ')}`;
+          if(lvl==='warn') d.style.color='khaki';
+          if(lvl==='error') d.style.color='salmon';
           out.appendChild(d);
           out.scrollTop = out.scrollHeight;
         };
@@ -50,188 +50,129 @@
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    // — YOUR NEW GEO TARGET —
+    // your new target
     const TARGET_LAT   = 48.308066;
     const TARGET_LON   = 14.284432;
-    const MODEL_HEIGHT = 3.0;  // m above floor
-    const EYE_HEIGHT   = 1.6;  // m
+    const MODEL_H      = 3.0;
+    const EYE_H        = 1.6;
 
     const statusEl = document.getElementById('status');
-    const setStatus = txt => { statusEl.textContent = txt; console.log(txt); };
+    const setStatus = t => { statusEl.textContent=t; console.log(t); };
 
     let scene, camera, renderer;
     let geoSphere, fallbackSphere;
-    let userLat, userLon, heading;
-    let gotGPS=false, gotCompass=false;
     let xrRefSpace=null, xrAnchor=null;
-    let anchored=false, placeAttempts=0;
+    let anchored=false, placeTries=0;
 
-    // 1) GPS once
-    async function getGPS(){
-      setStatus('📍 Getting GPS…');
-      return new Promise((res, rej)=>{
-        if(!navigator.geolocation) return rej('No GPS API');
-        navigator.geolocation.getCurrentPosition(
-          p => {
-            userLat = p.coords.latitude;
-            userLon = p.coords.longitude;
-            gotGPS = true;
-            setStatus(`📍 GPS: ${userLat.toFixed(6)}, ${userLon.toFixed(6)}`);
-            res();
-          },
-          ()=>rej('GPS error'),
-          { enableHighAccuracy:true, timeout:5000 }
-        );
+    // spot‐on GPS & compass
+    async function sampleSensors(){
+      setStatus('📍 getting GPS…');
+      const { latitude, longitude } = await new Promise((res, rej)=>{
+        navigator.geolocation.getCurrentPosition(res,rej,{ enableHighAccuracy:true, timeout:5000 });
       });
-    }
-
-    // 2) Compass once
-    async function getCompass(){
-      setStatus('🧭 Getting compass…');
-      return new Promise(res=>{
+      setStatus(`📍 GPS: ${latitude.toFixed(6)},${longitude.toFixed(6)}`);
+      const heading = await new Promise(res=>{
         window.addEventListener('deviceorientationabsolute', ev=>{
-          if(ev.alpha != null){
-            heading = ev.alpha;
-            gotCompass = true;
-            setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
-            res();
-          }
-        }, { once:true, passive:true });
+          if(ev.alpha!=null) res(ev.alpha);
+        },{ once:true });
       });
+      setStatus(`🧭 Heading: ${heading.toFixed(1)}°`);
+      return { latitude, longitude, heading };
     }
 
-    // 3) lat/lon → ENU
     function latLonToENU(lat,lon,lat0,lon0){
-      const R = 6378137;
-      const dLat = THREE.MathUtils.degToRad(lat - lat0);
-      const dLon = THREE.MathUtils.degToRad(lon - lon0);
+      const R=6378137;
+      const dLat=THREE.MathUtils.degToRad(lat-lat0);
+      const dLon=THREE.MathUtils.degToRad(lon-lon0);
       return {
-        east:  dLon * R * Math.cos(THREE.MathUtils.degToRad(lat0)),
-        north: dLat * R
+        east:  dLon*R*Math.cos(THREE.MathUtils.degToRad(lat0)),
+        north: dLat*R
       };
     }
 
-    // 4) Three.js + ARButton
     function initThree(){
-      setStatus('🎨 Init Three.js…');
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera();
-      renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('xr-canvas'),
-        alpha:true, antialias:true
-      });
-      renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      scene=new THREE.Scene();
+      camera=new THREE.PerspectiveCamera();
+      renderer=new THREE.WebGLRenderer({ canvas:document.getElementById('xr-canvas'), alpha:true, antialias:true });
+      renderer.xr.enabled=true;
+      renderer.setSize(window.innerWidth,window.innerHeight);
 
-      const btn = ARButton.createButton(renderer,{
+      const btn=ARButton.createButton(renderer,{
         requiredFeatures:['local-floor','anchors']
       });
-      btn.style.zIndex = 10000;
+      btn.style.zIndex=10000;
       document.body.appendChild(btn);
 
       scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
     }
-
-    // 5) Create large spheres (5 m radius)
     function initModels(){
-      geoSphere = new THREE.Mesh(
+      geoSphere=new THREE.Mesh(
         new THREE.SphereGeometry(5,32,16),
         new THREE.MeshStandardMaterial({ color:0xff6600 })
       );
-      geoSphere.visible = false;
-      scene.add(geoSphere);
+      geoSphere.visible=false; scene.add(geoSphere);
 
-      fallbackSphere = geoSphere.clone();
-      fallbackSphere.material = new THREE.MeshStandardMaterial({ color:0x00ff00 });
-      fallbackSphere.visible = false;
-      scene.add(fallbackSphere);
+      fallbackSphere=geoSphere.clone();
+      fallbackSphere.material=new THREE.MeshStandardMaterial({ color:0x00ff00 });
+      fallbackSphere.visible=false; scene.add(fallbackSphere);
     }
 
-    // 6) Render/placement
-    async function onXRFrame(time, frame){
-      const session = frame.session;
+    async function onXRFrame(t,frame){
+      const session=frame.session;
 
-      // 6a) cache local-floor once
+      // refSpace once
       if(!xrRefSpace){
-        try{
-          xrRefSpace = await session.requestReferenceSpace('local-floor');
-          console.log('✅ refSpace ready');
-        }catch(e){
-          console.warn('refSpace error',e);
-        }
+        try{ xrRefSpace=await session.requestReferenceSpace('local-floor'); console.log('got refSpace'); }
+        catch(e){ console.warn(e); }
       }
 
-      // 6b) attempt placement up to 5 frames
-      if(!anchored && placeAttempts++ < 5){
-        if(xrRefSpace && gotGPS && gotCompass){
-          const { east, north } = latLonToENU(
-            TARGET_LAT, TARGET_LON,
-            userLat, userLon
-          );
-          console.log('ENU:',east.toFixed(2),north.toFixed(2));
-
-          const h = Number.isFinite(heading)?heading:0;
-          const rot = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(0, -THREE.MathUtils.degToRad(h), 0, 'YXZ')
-          );
-          const pos = { x:east, y:MODEL_HEIGHT-EYE_HEIGHT, z:-north };
-          console.log('Placing at',pos);
-
-          try {
-            xrAnchor = await frame.createAnchor(
-              new XRRigidTransform(pos,rot),
-              xrRefSpace
-            );
-            setStatus('✅ Anchor created');
-            geoSphere.visible = true;
-            anchored = true;
-          } catch(err) {
-            console.warn('anchor fail',err);
-            setStatus('⚠️ Anchor failed—fallback');
-            // fallback: 2 m in front
-            const cam = renderer.xr.getCamera(camera);
-            const dir = new THREE.Vector3(0,0,-1)
-              .applyQuaternion(cam.quaternion);
-            fallbackSphere.position.copy(
-              cam.position.clone().add(dir.multiplyScalar(2))
-            );
-            fallbackSphere.quaternion.copy(cam.quaternion);
-            fallbackSphere.visible = true;
-            anchored = true;
-          }
-        } else {
-          console.log('waiting… sensors/refSpace', xrRefSpace, gotGPS, gotCompass);
+      // on first few frames, re-sample sensors then place
+      if(!anchored && placeTries++<5 && xrRefSpace){
+        setStatus('⏳ preparing to place…');
+        let lat,lon,heading;
+        try {
+          ({ latitude:lat, longitude:lon, heading } = await sampleSensors());
+          await new Promise(r=>setTimeout(r,1000));  // settle
+        } catch(e){
+          console.warn('sensor fail',e);
         }
+        const { east,north } = latLonToENU(TARGET_LAT,TARGET_LON,lat,lon);
+        console.log('ENU',east,north);
+        const rot=new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(0,-THREE.MathUtils.degToRad(heading||0),0,'YXZ')
+        );
+        const pos={ x:east, y:MODEL_H-EYE_H, z:-north };
+        console.log('placing at',pos);
+
+        try {
+          xrAnchor=await frame.createAnchor(new XRRigidTransform(pos,rot), xrRefSpace);
+          setStatus('✅ Anchor created');
+          geoSphere.visible=true;
+        } catch(_) {
+          setStatus('⚠️ anchor fail—fallback');
+          const cam=renderer.xr.getCamera(camera);
+          const dir=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
+          fallbackSphere.position.copy(cam.position.clone().add(dir.multiplyScalar(2)));
+          fallbackSphere.quaternion.copy(cam.quaternion);
+          fallbackSphere.visible=true;
+        }
+        anchored=true;
       }
 
-      // 6c) update anchored sphere
+      // update anchored pose
       if(xrAnchor){
-        const pose = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
-        if(pose){
-          geoSphere.matrix.fromArray(pose.transform.matrix);
-          geoSphere.matrix.decompose(
-            geoSphere.position,
-            geoSphere.quaternion,
-            geoSphere.scale
-          );
-          geoSphere.matrixAutoUpdate = false;
+        const p=frame.getPose(xrAnchor.anchorSpace,xrRefSpace);
+        if(p){
+          geoSphere.matrix.fromArray(p.transform.matrix);
+          geoSphere.matrix.decompose(geoSphere.position,geoSphere.quaternion,geoSphere.scale);
+          geoSphere.matrixAutoUpdate=false;
         }
       }
 
-      renderer.render(scene, camera);
+      renderer.render(scene,camera);
     }
 
-    // 7) Bootstrap
     (async()=>{
-      try {
-        await getGPS();
-        await getCompass();
-      } catch(e){
-        console.warn('sensor error',e);
-      }
-      // give sensors a moment
-      await new Promise(r=>setTimeout(r,1000));
-
       initThree();
       initModels();
       renderer.xr.setAnimationLoop(onXRFrame);
@@ -239,7 +180,7 @@
     })();
 
     window.addEventListener('resize',()=>{
-      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.aspect=window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
     });
