@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Geo AR — Handle Overlay Permission Block</title>
+  <title>Geo AR — Pinned at 48.305596, 14.289124</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
     body { margin:0; overflow:hidden; font-family:sans-serif }
@@ -50,11 +50,11 @@
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-    // new target
-    const TARGET_LAT   = 48.308066;
-    const TARGET_LON   = 14.284432;
-    const MODEL_H      = 3.0;
-    const EYE_H        = 1.6;
+    // — YOUR NEW GEO TARGET —
+    const TARGET_LAT   = 48.305596;
+    const TARGET_LON   = 14.289124;
+    const MODEL_H      = 3.0;  // meters above floor
+    const EYE_H        = 1.6;  // approximate eye height
 
     const statusEl = document.getElementById('status');
     const setStatus = txt => { statusEl.textContent = txt; console.log(txt); };
@@ -64,9 +64,9 @@
     let xrRefSpace = null, xrAnchor = null;
     let anchored = false, tries = 0;
 
-    // get fresh GPS + compass
+    // 1) Sample GPS + compass each AR session
     async function sampleSensors(){
-      setStatus('📍 get GPS…');
+      setStatus('📍 Getting GPS…');
       const { coords } = await new Promise((res,rej)=>
         navigator.geolocation.getCurrentPosition(res,rej,{ enableHighAccuracy:true, timeout:5000 })
       );
@@ -80,38 +80,38 @@
       return { lat: coords.latitude, lon: coords.longitude, heading };
     }
 
+    // 2) Convert lat/lon to local ENU
     function latLonToENU(lat,lon,lat0,lon0){
-      const R=6378137;
-      const dLat=THREE.MathUtils.degToRad(lat-lat0);
-      const dLon=THREE.MathUtils.degToRad(lon-lon0);
+      const R = 6378137;
+      const dLat = THREE.MathUtils.degToRad(lat - lat0);
+      const dLon = THREE.MathUtils.degToRad(lon - lon0);
       return {
-        east:  dLon*R*Math.cos(THREE.MathUtils.degToRad(lat0)),
-        north: dLat*R
+        east:  dLon * R * Math.cos(THREE.MathUtils.degToRad(lat0)),
+        north: dLat * R
       };
     }
 
+    // 3) Initialize Three.js + ARButton
     function initThree(){
-      scene=new THREE.Scene();
-      camera=new THREE.PerspectiveCamera();
-      renderer=new THREE.WebGLRenderer({ 
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera();
+      renderer = new THREE.WebGLRenderer({
         canvas: document.getElementById('xr-canvas'),
-        alpha: true, antialias: true
+        alpha:true, antialias:true
       });
       renderer.xr.enabled = true;
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(window.innerWidth,window.innerHeight);
 
-      // wrap the default ARButton to catch permission errors
-      const btn = ARButton.createButton(renderer, {
-        requiredFeatures: ['local-floor','anchors']
+      const btn = ARButton.createButton(renderer,{
+        requiredFeatures:['local-floor','anchors']
       });
       btn.style.zIndex = 10000;
-      btn.addEventListener('click', async () => {
-        setStatus('⏳ Checking permission…');
+      btn.addEventListener('click', async ()=>{
+        setStatus('⏳ Checking camera permission…');
         try {
-          // if session already exists, ARButton handles it
           await navigator.xr.isSessionSupported('immersive-ar');
         } catch(e){
-          setStatus('❌ Cannot ask camera: close overlays then retry');
+          setStatus('❌ Permission blocked—close overlays and retry');
         }
       });
       document.body.appendChild(btn);
@@ -119,45 +119,59 @@
       scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
     }
 
+    // 4) Create the big orange and fallback green sphere
     function initModels(){
-      geoSphere=new THREE.Mesh(
+      geoSphere = new THREE.Mesh(
         new THREE.SphereGeometry(5,32,16),
         new THREE.MeshStandardMaterial({ color:0xff6600 })
       );
-      geoSphere.visible=false; scene.add(geoSphere);
+      geoSphere.visible = false;
+      scene.add(geoSphere);
 
-      fallbackSphere=geoSphere.clone();
-      fallbackSphere.material=new THREE.MeshStandardMaterial({ color:0x00ff00 });
-      fallbackSphere.visible=false; scene.add(fallbackSphere);
+      fallbackSphere = geoSphere.clone();
+      fallbackSphere.material = new THREE.MeshStandardMaterial({ color:0x00ff00 });
+      fallbackSphere.visible = false;
+      scene.add(fallbackSphere);
     }
 
-    async function onXRFrame(t, frame){
+    // 5) Each XRFrame: get refSpace, attempt placement, update anchor
+    async function onXRFrame(time, frame){
       const session = frame.session;
+
       if(!xrRefSpace){
         try {
           xrRefSpace = await session.requestReferenceSpace('local-floor');
-          console.log('refSpace ready');
+          console.log('✅ refSpace ready');
         } catch(e){
           console.warn('refSpace error',e);
         }
       }
 
-      if(!anchored && tries++ < 5 && xrRefSpace){
-        setStatus('⌛ preparing…');
+      if(!anchored && tries++<5 && xrRefSpace){
+        setStatus('⌛ Preparing placement…');
         let lat, lon, heading;
         try {
           ({ lat, lon, heading } = await sampleSensors());
-          await new Promise(r=>setTimeout(r,1000));
+          await new Promise(r=>setTimeout(r,1000));  // stabilize
         } catch(e){
-          console.warn('sensor fail', e);
+          console.warn('sensor error', e);
         }
-        const { east, north } = latLonToENU(TARGET_LAT, TARGET_LON, lat, lon);
-        console.log('ENU', east, north);
+
+        const { east, north } = latLonToENU(
+          TARGET_LAT, TARGET_LON,
+          lat, lon
+        );
+        console.log('ENU:', east.toFixed(2), north.toFixed(2));
+
         const rot = new THREE.Quaternion().setFromEuler(
           new THREE.Euler(0, -THREE.MathUtils.degToRad(heading||0), 0, 'YXZ')
         );
-        const pos = { x: east, y: MODEL_H - EYE_H, z: -north };
-        console.log('place at', pos);
+        const pos = {
+          x: east,
+          y: MODEL_H - EYE_H,
+          z: -north
+        };
+        console.log('Placing at', pos);
 
         try {
           xrAnchor = await frame.createAnchor(
@@ -166,22 +180,23 @@
           );
           setStatus('✅ Anchor created');
           geoSphere.visible = true;
-        } catch(e){
-          console.warn('anchor fail', e);
-          setStatus('⚠️ fallback');
+        } catch(err){
+          console.warn('anchor fail', err);
+          setStatus('⚠️ Fallback placement');
           const cam = renderer.xr.getCamera(camera);
           const dir = new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion);
           fallbackSphere.position.copy(cam.position.clone().add(dir.multiplyScalar(2)));
           fallbackSphere.quaternion.copy(cam.quaternion);
           fallbackSphere.visible = true;
         }
+
         anchored = true;
       }
 
       if(xrAnchor){
-        const p = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
-        if(p){
-          geoSphere.matrix.fromArray(p.transform.matrix);
+        const pose = frame.getPose(xrAnchor.anchorSpace, xrRefSpace);
+        if(pose){
+          geoSphere.matrix.fromArray(pose.transform.matrix);
           geoSphere.matrix.decompose(
             geoSphere.position,
             geoSphere.quaternion,
@@ -191,20 +206,21 @@
         }
       }
 
-      renderer.render(scene, camera);
+      renderer.render(scene,camera);
     }
 
-    (async()=>{
+    // 6) Bootstrap
+    (()=>{
       initThree();
       initModels();
       renderer.xr.setAnimationLoop(onXRFrame);
       setStatus('Tap ENTER AR');
     })();
 
-    window.addEventListener('resize', ()=>{
-      camera.aspect = window.innerWidth/window.innerHeight;
+    window.addEventListener('resize',()=>{
+      camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth,window.innerHeight);
+      renderer.setSize(window.innerWidth, window.innerHeight);
     });
   </script>
 </body>
