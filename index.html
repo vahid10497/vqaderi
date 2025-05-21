@@ -1,53 +1,98 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebXR ARButton Verified</title>
-  <style>
-    body { margin: 0; overflow: hidden; }
-    canvas { width: 100%; height: 100% }
-  </style>
-</head>
-<body>
-<script type="module">
-  import * as THREE from 'https://cdn.skypack.dev/three@0.158.0';
-  import { ARButton } from 'https://cdn.skypack.dev/three@0.158.0/examples/jsm/webxr/ARButton.js';
+<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+    <title>WebXR AR + Geolocation</title>
+    <style>
+      body { margin: 0; overflow: hidden; }
+      canvas { width: 100%; height: 100%; display: block; }
+      #status { position: absolute; top: 10px; left: 10px; background: white; padding: 8px; font-family: sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="status">Locating...</div>
+    <script type="module">
+      import * as THREE from 'https://cdn.skypack.dev/three@0.158.0';
+      import { ARButton } from 'https://cdn.skypack.dev/three@0.158.0/examples/jsm/webxr/ARButton.js';
 
-  let camera, scene, renderer;
+      let camera, scene, renderer, controller;
+      let userLatLon = null;
+      let objectPlaced = false;
+      const targetGPS = { lat: 48.28995799844782, lon: 14.282852284502516 };
 
-  init();
+      init();
+      getLocation();
 
-  function init() {
-    const container = document.body;
+      function init() {
+        scene = new THREE.Scene();
 
-    scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
 
-    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-    light.position.set(0.5, 1, 0.25);
-    scene.add(light);
+        document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
 
-    const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-    const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(0, 0, -0.5);
-    scene.add(mesh);
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.xr.enabled = true;
-    container.appendChild(renderer.domElement);
+        renderer.setAnimationLoop(() => {
+          if (userLatLon && !objectPlaced) {
+            const offset = gpsToOffset(userLatLon, targetGPS);
+            const box = new THREE.Mesh(
+              new THREE.BoxGeometry(0.2, 0.2, 0.2),
+              new THREE.MeshStandardMaterial({ color: 0xff0000 })
+            );
+            box.position.set(offset.x, 0, offset.z);
+            scene.add(box);
+            document.getElementById('status').innerText = 'Object placed';
+            objectPlaced = true;
+          }
+          renderer.render(scene, camera);
+        });
+      }
 
-    document.body.appendChild(ARButton.createButton(renderer, {
-      requiredFeatures: ['hit-test']
-    }));
+      function getLocation() {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(pos => {
+            userLatLon = {
+              lat: pos.coords.latitude,
+              lon: pos.coords.longitude
+            };
+            document.getElementById('status').innerText = 'GPS acquired';
+          }, err => {
+            document.getElementById('status').innerText = 'GPS error';
+            console.error(err);
+          }, { enableHighAccuracy: true });
+        }
+      }
 
-    renderer.setAnimationLoop(() => {
-      renderer.render(scene, camera);
-    });
-  }
-</script>
-</body>
+      function gpsToOffset(user, target) {
+        const R = 6371000;
+        const dLat = THREE.MathUtils.degToRad(target.lat - user.lat);
+        const dLon = THREE.MathUtils.degToRad(target.lon - user.lon);
+        const lat1 = THREE.MathUtils.degToRad(user.lat);
+        const lat2 = THREE.MathUtils.degToRad(target.lat);
+
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.sin(dLon/2) * Math.sin(dLon/2) * Math.cos(lat1) * Math.cos(lat2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c;
+
+        const bearing = Math.atan2(
+          Math.sin(dLon) * Math.cos(lat2),
+          Math.cos(lat1) * Math.sin(lat2) -
+          Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+        );
+
+        return {
+          x: distance * Math.sin(bearing),
+          z: distance * Math.cos(bearing)
+        };
+      }
+    </script>
+  </body>
 </html>
