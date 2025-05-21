@@ -7,7 +7,17 @@
     <style>
       body { margin: 0; overflow: hidden; }
       canvas { width: 100%; height: 100%; display: block; }
-      #status { position: absolute; top: 10px; left: 10px; background: white; padding: 8px; font-family: sans-serif; }
+      #status {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: white;
+        padding: 8px;
+        font-family: sans-serif;
+        z-index: 999;
+        max-width: 90%;
+        font-size: 14px;
+      }
     </style>
   </head>
   <body>
@@ -23,6 +33,11 @@
 
       init();
       getLocation();
+
+      function updateStatus(message) {
+        const el = document.getElementById('status');
+        el.innerText = message;
+      }
 
       function init() {
         scene = new THREE.Scene();
@@ -48,7 +63,7 @@
             );
             box.position.set(offset.x, 0, offset.z);
             scene.add(box);
-            document.getElementById('status').innerText = 'Object placed';
+            updateStatus(`Object placed at offset x: ${offset.x.toFixed(2)} m, z: ${offset.z.toFixed(2)} m`);
             objectPlaced = true;
           }
           renderer.render(scene, camera);
@@ -56,17 +71,20 @@
       }
 
       function getLocation() {
+        updateStatus('Requesting GPS...');
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(pos => {
             userLatLon = {
               lat: pos.coords.latitude,
               lon: pos.coords.longitude
             };
-            document.getElementById('status').innerText = 'GPS acquired';
+            updateStatus(`GPS acquired:\nlat: ${userLatLon.lat.toFixed(6)}\nlon: ${userLatLon.lon.toFixed(6)}`);
           }, err => {
-            document.getElementById('status').innerText = 'GPS error';
+            updateStatus('GPS error: ' + err.message);
             console.error(err);
           }, { enableHighAccuracy: true });
+        } else {
+          updateStatus('Geolocation not supported.');
         }
       }
 
