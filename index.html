@@ -28,7 +28,7 @@
     let controller;
     let reticle;
     let lockedObject = null;
-    let gpsTarget = { lat: 48.305596, lon: 14.289124 }; // Replace with your location
+    let gpsTarget = { lat: 48.28995799844782, lon: 14.282852284502516 }; // Your real-world location
     let userPos = null;
     let objectPlaced = false;
 
@@ -45,7 +45,7 @@
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      document.body.appendChild(ARButton.createButton(renderer));
+      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
 
       controller = renderer.xr.getController(0);
       scene.add(controller);
